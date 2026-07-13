@@ -94,18 +94,33 @@ func (s *Server) Close() {
 // Handler returns the HTTP handler: WebSocket tunnel on the configured path,
 // an innocuous landing page everywhere else so scanners see a plain web app.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc(s.cfg.WSPath, func(w http.ResponseWriter, r *http.Request) {
-		if websocket.IsWebSocketUpgrade(r) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Plain health endpoint for Coolify/Traefik/load-balancer checks. A
+		// failing health check is a common reason a proxy starts returning
+		// 5xx/403 for the service, so keep this always-200 and unauthenticated.
+		if r.URL.Path == "/healthz" {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+
+		isWS := websocket.IsWebSocketUpgrade(r)
+		// One concise access log line per request. Invaluable for diagnosing
+		// "403 upstream" reports: if these lines appear, the request reached
+		// ArnosVPN and the proxy is not the problem; if they don't, it is.
+		log.Printf("request %s %s ws=%v ua=%q from=%s xff=%q",
+			r.Method, r.URL.Path, isWS, r.UserAgent(), r.RemoteAddr,
+			r.Header.Get("X-Forwarded-For"))
+
+		// Accept the tunnel upgrade on ANY path. Some proxies rewrite or strip
+		// the path; as long as it's a WebSocket upgrade that passes the PSK
+		// handshake, serve it. Everything else gets the innocuous decoy page.
+		if isWS {
 			s.handleTunnel(w, r)
 			return
 		}
 		s.decoy(w, r)
 	})
-	if s.cfg.WSPath != "/" {
-		mux.HandleFunc("/", s.decoy)
-	}
-	return mux
 }
 
 // decoy serves a boring page so the endpoint looks like an ordinary site.
