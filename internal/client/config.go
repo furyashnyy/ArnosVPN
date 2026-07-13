@@ -17,10 +17,37 @@ type Server struct {
 	URI  string `json:"uri"`
 }
 
-// Config is the desktop client's persisted list of servers.
+// Settings holds the desktop client's preferences (the Settings page). Some are
+// wired to behaviour (mode, ports, DNS, allowLan, preferredIP); the rest are
+// persisted for the UI and reserved for future protocol features.
+type Settings struct {
+	Mode        string `json:"mode"`        // proxy | tun
+	Socks       string `json:"socks"`       // SOCKS5 listen address
+	Http        string `json:"http"`        // HTTP proxy listen address
+	DNS         string `json:"dns"`         // comma-separated
+	PreferredIP string `json:"preferredIP"` // auto | 4 | 6
+	AllowLAN    bool   `json:"allowLan"`    // bind proxies on 0.0.0.0
+	SystemProxy bool   `json:"systemProxy"`
+	Autostart   bool   `json:"autostart"`
+	Fragment    bool   `json:"fragment"`
+	Mux         bool   `json:"mux"`
+	Theme       string `json:"theme"` // system | light | dark
+	TunDNS      string `json:"tunDns"`
+}
+
+// DefaultSettings returns sensible defaults.
+func DefaultSettings() *Settings {
+	return &Settings{
+		Mode: "proxy", Socks: "127.0.0.1:1080", Http: "127.0.0.1:8080",
+		DNS: "1.1.1.1,1.0.0.1", PreferredIP: "auto", Theme: "system", TunDNS: "1.1.1.1",
+	}
+}
+
+// Config is the desktop client's persisted list of servers and settings.
 type Config struct {
-	Active  string   `json:"active"`
-	Servers []Server `json:"servers"`
+	Active   string    `json:"active"`
+	Servers  []Server  `json:"servers"`
+	Settings *Settings `json:"settings,omitempty"`
 }
 
 // DefaultConfigPath returns the per-user config file location:
@@ -38,7 +65,7 @@ func DefaultConfigPath() string {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Config{}, nil
+		return &Config{Settings: DefaultSettings()}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -46,6 +73,9 @@ func LoadConfig(path string) (*Config, error) {
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if c.Settings == nil {
+		c.Settings = DefaultSettings()
 	}
 	return &c, nil
 }
@@ -65,12 +95,15 @@ func (c *Config) Save(path string) error {
 // Add validates and stores a server by arnos:// URI. If a server with the same
 // name exists it is replaced. The first server added becomes active.
 func (c *Config) Add(name, uri string) error {
-	if _, err := provision.ParseURI(uri); err != nil {
+	p, err := provision.ParseURI(uri)
+	if err != nil {
 		return err
 	}
 	if name == "" {
-		p, _ := provision.ParseURI(uri)
-		name = p.Host
+		name = p.Name
+		if name == "" {
+			name = p.Host
+		}
 	}
 	for i := range c.Servers {
 		if strings.EqualFold(c.Servers[i].Name, name) {

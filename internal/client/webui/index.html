@@ -1,179 +1,481 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ArnosVPN</title>
 <style>
-  :root {
-    --bg: #0f1220; --card: #1a1f36; --muted: #8b93b0; --text: #eef1f8;
-    --primary: #3b5bff; --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --line: #2a3152;
+  :root{
+    --bg:#0f1220; --bg2:#151a30; --panel:#1a1f36; --panel2:#10152b; --line:#28304f;
+    --text:#eef1f8; --muted:#8b93b0; --primary:#3b5bff; --primary2:#5b74ff;
+    --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: -apple-system, Segoe UI, Roboto, system-ui, sans-serif;
-    background: radial-gradient(1200px 600px at 50% -10%, #1b2142, var(--bg)); color: var(--text);
-    min-height: 100vh; display: flex; justify-content: center;
+  :root[data-theme="light"]{
+    --bg:#eef0f6; --bg2:#f6f7fb; --panel:#ffffff; --panel2:#f2f4fa; --line:#e2e6f0;
+    --text:#1a1f2e; --muted:#6b7590; --primary:#3b5bff; --primary2:#2e6be6;
+    --green:#16a34a; --amber:#d97706; --red:#dc2626;
   }
-  .wrap { width: 100%; max-width: 460px; padding: 28px 20px 40px; }
-  h1 { font-size: 26px; margin: 6px 0 0; letter-spacing: -0.5px; }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; margin-top: 22px; }
-  .status { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-  .ring { width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center;
-    background: var(--muted); box-shadow: 0 0 0 14px rgba(139,147,176,.14); transition: .3s; }
-  .ring svg { width: 52px; height: 52px; fill: #fff; }
-  .state-title { font-size: 20px; font-weight: 700; }
-  .state-sub { color: var(--muted); font-size: 13px; min-height: 18px; text-align: center; }
-  button { font: inherit; cursor: pointer; border: none; border-radius: 999px; }
-  .connect { width: 100%; padding: 16px; font-size: 16px; font-weight: 700; color: #fff;
-    background: var(--primary); margin-top: 22px; }
-  .connect.on { background: var(--green); }
-  .connect:disabled { opacity: .6; cursor: default; }
-  .row { display: flex; gap: 10px; margin-top: 12px; }
-  .row input { flex: 1; background: #10152b; border: 1px solid var(--line);
-    color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
-  .row .add { padding: 0 18px; background: #263056; color: #fff; }
-  .seg { display: flex; gap: 6px; margin-top: 16px; }
-  .seg button { flex: 1; padding: 10px; background: #10152b; color: var(--muted); border: 1px solid var(--line); }
-  .seg button.sel { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .servers { margin-top: 22px; }
-  .servers h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 0 0 8px; }
-  .srv { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line);
-    border-radius: 14px; margin-bottom: 8px; background: #10152b; }
-  .srv .dot { width: 9px; height: 9px; border-radius: 50%; background: #394264; }
-  .srv.active .dot { background: var(--green); }
-  .srv .name { font-weight: 600; }
-  .srv .host { color: var(--muted); font-size: 12px; }
-  .srv .grow { flex: 1; }
-  .srv .x { color: var(--muted); background: transparent; padding: 6px 10px; font-size: 18px; }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.5; }
-  .err { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 16px; text-align: center; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,system-ui,sans-serif;
+    background:var(--bg);color:var(--text);overflow:hidden}
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer;border:none;background:none}
+  .app{display:flex;height:100vh}
+
+  /* Sidebar */
+  .sidebar{width:232px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding:18px 12px}
+  .brand{display:flex;align-items:center;gap:10px;padding:8px 10px 18px;font-weight:800;font-size:19px;letter-spacing:-.4px}
+  .brand svg{width:26px;height:26px;fill:var(--primary)}
+  .nav{display:flex;flex-direction:column;gap:4px;flex:1}
+  .nav a{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;
+    color:var(--muted);text-decoration:none;font-size:14.5px;font-weight:600;transition:.15s}
+  .nav a svg{width:19px;height:19px;fill:currentColor;opacity:.9}
+  .nav a:hover{background:color-mix(in srgb,var(--primary) 12%,transparent);color:var(--text)}
+  .nav a.active{background:color-mix(in srgb,var(--primary) 18%,transparent);color:var(--text)}
+  .nav a.active svg{fill:var(--primary)}
+
+  /* Main */
+  .main{flex:1;overflow-y:auto;padding:26px 30px}
+  .page-title{font-size:24px;font-weight:800;margin:0 0 20px;letter-spacing:-.4px}
+  .page-title .crumb{color:var(--muted);font-weight:700}
+  .back{background:none;color:var(--muted);font-size:22px;margin-right:8px}
+
+  /* Cards / rows */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px}
+  .rows{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:12px;padding:15px 18px;border-top:1px solid var(--line)}
+  .row:first-child{border-top:none}
+  .row .grow{flex:1;min-width:0}
+  .row .r-title{font-size:14.5px;font-weight:600}
+  .row .r-sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .row.link{cursor:pointer;transition:.12s}
+  .row.link:hover{background:color-mix(in srgb,var(--primary) 8%,transparent)}
+  .row .chev{color:var(--muted);font-size:18px}
+  .row.danger .r-title{color:var(--red)}
+  .group-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;
+    font-weight:700;margin:22px 4px 8px}
+
+  /* Custom toggle */
+  .tg{width:46px;height:26px;border-radius:20px;background:var(--line);position:relative;flex-shrink:0;transition:.2s}
+  .tg::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+    background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .tg.on{background:var(--primary)}
+  .tg.on::after{transform:translateX(20px)}
+
+  /* Custom select */
+  .sel{position:relative;min-width:130px}
+  .sel-btn{display:flex;align-items:center;gap:8px;justify-content:space-between;width:100%;
+    background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 12px;font-size:13.5px;font-weight:600}
+  .sel-btn .car{color:var(--muted);font-size:11px}
+  .sel-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:100%;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:6px;z-index:40;box-shadow:0 12px 34px rgba(0,0,0,.35);display:none}
+  .sel-menu.open{display:block}
+  .sel-menu div{padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .sel-menu div:hover{background:color-mix(in srgb,var(--primary) 14%,transparent)}
+  .sel-menu div.sel-active{color:var(--primary)}
+
+  input.inp{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:9px 12px;
+    font-size:13.5px;min-width:170px;outline:none}
+  input.inp:focus{border-color:var(--primary)}
+
+  /* Buttons */
+  .btn{border-radius:12px;padding:11px 18px;font-size:14px;font-weight:700;background:var(--primary);color:#fff;transition:.15s}
+  .btn:hover{background:var(--primary2)}
+  .btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+  .btn.ghost:hover{background:color-mix(in srgb,var(--primary) 12%,transparent)}
+  .btn.danger{background:var(--red)}
+  .btn.sm{padding:8px 14px;font-size:13px;border-radius:10px}
+
+  /* Servers layout */
+  .srv-grid{display:grid;grid-template-columns:1fr 320px;gap:24px;align-items:start}
+  @media (max-width:900px){.srv-grid{grid-template-columns:1fr}}
+  .search{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+    border-radius:13px;padding:11px 14px;margin-bottom:14px}
+  .search input{flex:1;background:none;border:none;outline:none;font-size:14px}
+  .search svg{width:18px;height:18px;fill:var(--muted)}
+  .srv{display:flex;align-items:center;gap:13px;padding:15px 16px;border:1px solid var(--line);
+    border-radius:14px;background:var(--panel);margin-bottom:10px;cursor:pointer;transition:.12s;position:relative}
+  .srv:hover{border-color:color-mix(in srgb,var(--primary) 45%,var(--line))}
+  .srv.active{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+  .srv .dot{width:10px;height:10px;border-radius:50%;background:#3a4468;flex-shrink:0}
+  .srv.active .dot{background:var(--green)}
+  .srv .nm{font-weight:700;font-size:14.5px}
+  .srv .hs{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .srv .ping{font-size:12px;color:var(--muted);font-weight:600}
+  .srv .more{color:var(--muted);font-size:20px;padding:2px 8px;border-radius:8px}
+  .srv .more:hover{background:color-mix(in srgb,var(--primary) 15%,transparent)}
+  .empty{color:var(--muted);text-align:center;padding:50px 10px;font-size:14px}
+
+  /* Connection panel */
+  .conn{display:flex;flex-direction:column;align-items:center;gap:18px;padding:26px 20px}
+  .power{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+    background:radial-gradient(circle at 50% 35%,var(--panel),var(--panel2));border:1px solid var(--line);
+    box-shadow:0 0 0 12px color-mix(in srgb,var(--muted) 10%,transparent);transition:.3s}
+  .power svg{width:56px;height:56px;fill:none;stroke:var(--muted);stroke-width:2.4;transition:.3s}
+  .power.on{box-shadow:0 0 0 12px color-mix(in srgb,var(--green) 20%,transparent),0 0 42px color-mix(in srgb,var(--green) 40%,transparent)}
+  .power.on svg{stroke:var(--green)}
+  .power.connecting svg{stroke:var(--amber)}
+  .power.err svg{stroke:var(--red)}
+  .cstat{font-weight:800;font-size:18px}
+  .cip{color:var(--muted);font-size:13px;min-height:18px}
+  .seg{display:flex;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:4px}
+  .seg button{flex:1;padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;color:var(--muted)}
+  .seg button.on{background:var(--primary);color:#fff}
+
+  /* Stat tiles */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+  .tile{padding:20px}
+  .tile .tl{font-size:12.5px;color:var(--muted);font-weight:600}
+  .tile .tv{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+
+  /* Logs */
+  .logbox{background:#0a0d1a;border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6;
+    color:#c8d0ea;height:calc(100vh - 180px);overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+  :root[data-theme="light"] .logbox{background:#0f1424;color:#c8d0ea}
+
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(5,8,20,.55);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:60}
+  .overlay.open{display:flex}
+  .modal{width:min(480px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:20px;
+    padding:24px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .modal h3{margin:0 0 18px;font-size:19px;display:flex;justify-content:space-between;align-items:center}
+  .modal h3 .x{color:var(--muted);font-size:22px;cursor:pointer}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12.5px;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .field input,.field textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
+    border-radius:11px;padding:11px 13px;font-size:14px;outline:none;resize:vertical}
+  .field input:focus,.field textarea:focus{border-color:var(--primary)}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+
+  /* Context menu */
+  .ctx{position:fixed;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px;
+    z-index:70;box-shadow:0 14px 40px rgba(0,0,0,.4);display:none;min-width:160px}
+  .ctx.open{display:block}
+  .ctx div{padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .ctx div:hover{background:color-mix(in srgb,var(--primary) 14%,transparent)}
+  .ctx div.danger{color:var(--red)}
+
+  /* Toast */
+  .toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;
+    font-size:13.5px;font-weight:600;box-shadow:0 12px 34px rgba(0,0,0,.35);animation:pop .2s}
+  .toast.err{border-color:var(--red)}
+  @keyframes pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  .mini{display:flex;gap:16px;color:var(--muted);font-size:12.5px}
+  .mini b{color:var(--text)}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>ArnosVPN</h1>
-    <div class="sub">Secure encrypted tunnel · desktop</div>
-
-    <div class="card">
-      <div class="status">
-        <div id="ring" class="ring">
-          <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5z"/></svg>
-        </div>
-        <div id="stateTitle" class="state-title">Disconnected</div>
-        <div id="stateSub" class="state-sub"></div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5z"/></svg>
+        ArnosVPN
       </div>
-
-      <div class="seg" id="modeSeg">
-        <button data-mode="proxy" class="sel">Proxy (SOCKS/HTTP)</button>
-        <button data-mode="tun">TUN (system-wide)</button>
+      <nav class="nav" id="nav">
+        <a href="#/add"      data-r="add"><svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Добавить</a>
+        <a href="#/servers"  data-r="servers"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c1.7 0 3.2 3 3.2 8s-1.5 8-3.2 8-3.2-3-3.2-8 1.5-8 3.2-8zM4.3 9h15.4M4.3 15h15.4"/></svg>Серверы</a>
+        <a href="#/settings" data-r="settings"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm9 4-2 .5.5 2-2 1.7-1.8-1.1L14 18l-.5 2h-3L10 18l-1.7-.9L6.5 18l-2-1.7.5-2L3 12l2-.5-.5-2 2-1.7 1.8 1.1L10 6l.5-2h3L14 6l1.7.9L17.5 6l2 1.7-.5 2z"/></svg>Настройки</a>
+        <a href="#/stats"    data-r="stats"><svg viewBox="0 0 24 24"><path d="M4 20V10m5 10V4m5 16v-7m5 7V8"/></svg>Статистика</a>
+        <a href="#/logs"     data-r="logs"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 9h8M8 13h8M8 17h5"/></svg>Логи</a>
+      </nav>
+      <div class="nav" style="flex:0">
+        <a href="#/about" data-r="about"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 5v2m0 3v5"/></svg>О программе</a>
       </div>
-
-      <button id="connectBtn" class="connect">Connect</button>
-      <div id="err" class="err"></div>
-    </div>
-
-    <div class="servers">
-      <h3>Your servers</h3>
-      <div id="serverList"></div>
-      <div class="row">
-        <input id="uriInput" placeholder="arnos://connect?host=…&psk=…" />
-        <button class="add" id="addBtn">Add</button>
-      </div>
-      <div class="hint" id="proxyHint"></div>
-    </div>
+    </aside>
+    <main class="main" id="main"></main>
   </div>
 
+  <div class="overlay" id="overlay"></div>
+  <div class="ctx" id="ctx"></div>
+  <div class="toasts" id="toasts"></div>
+
 <script>
-let mode = "proxy";
+// ---------- helpers ----------
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+async function api(path,opts){const r=await fetch(path,opts);if(!r.ok)throw new Error(await r.text()||r.statusText);
+  const ct=r.headers.get("content-type")||"";return ct.includes("json")?r.json():r.text();}
+function toast(msg,err){const t=el("div","toast"+(err?" err":""),msg);$("#toasts").append(t);setTimeout(()=>t.remove(),3000);}
+function fmtBytes(n){if(!n)return"0 B";const u=["B","KB","MB","GB","TB"];const i=Math.floor(Math.log(n)/Math.log(1024));
+  return (n/Math.pow(1024,i)).toFixed(i?1:0)+" "+u[i];}
+function fmtDur(sec){if(sec<=0)return"—";const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=Math.floor(sec%60);
+  return (h?h+"ч ":"")+(m||h?m+"м ":"")+s+"с";}
 
-async function api(path, opts) {
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
-  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
-}
+let STATE={servers:[],connected:false};
+let SETTINGS={};
+let curMode="proxy";
+let pings={};
 
-function svgColor(s) {
-  if (s.connecting) return "var(--amber)";
-  if (s.connected) return "var(--green)";
-  if (s.error) return "var(--red)";
-  return "var(--muted)";
-}
+async function refreshState(){try{STATE=await api("/api/state");curMode=curMode||STATE.mode||"proxy";}catch(e){}}
+async function loadSettings(){try{SETTINGS=await api("/api/settings");curMode=SETTINGS.mode||"proxy";applyTheme(SETTINGS.theme);}catch(e){}}
+function saveSettings(){return api("/api/settings",{method:"POST",body:JSON.stringify(SETTINGS)});}
+function applyTheme(t){const root=document.documentElement;
+  if(t==="light")root.setAttribute("data-theme","light");
+  else if(t==="dark")root.setAttribute("data-theme","dark");
+  else root.removeAttribute("data-theme");}
 
-function render(s) {
-  const ring = document.getElementById("ring");
-  const c = svgColor(s);
-  ring.style.background = c;
-  ring.style.boxShadow = "0 0 0 14px " + c.replace("var(--muted)", "#8b93b0") + "22";
-  document.getElementById("stateTitle").textContent =
-    s.connecting ? "Connecting…" : s.connected ? "Connected" : s.error ? "Error" : "Disconnected";
-  document.getElementById("stateSub").textContent =
-    s.connected ? ("Exit IP · " + s.assignedIP) : "";
-  document.getElementById("err").textContent = s.error || "";
+// ---------- custom components ----------
+function toggle(on,onChange){const t=el("div","tg"+(on?" on":""));t.onclick=()=>{on=!on;t.classList.toggle("on",on);onChange(on);};return t;}
+function select(options,value,onChange){
+  const wrap=el("div","sel");const cur=options.find(o=>o.v===value)||options[0];
+  const btn=el("button","sel-btn",`<span>${cur?cur.t:""}</span><span class="car">▾</span>`);
+  const menu=el("div","sel-menu");
+  options.forEach(o=>{const d=el("div",o.v===value?"sel-active":"",o.t);d.onclick=(e)=>{e.stopPropagation();
+    menu.classList.remove("open");btn.querySelector("span").textContent=o.t;onChange(o.v);};menu.append(d);});
+  btn.onclick=(e)=>{e.stopPropagation();document.querySelectorAll(".sel-menu.open").forEach(m=>m!==menu&&m.classList.remove("open"));menu.classList.toggle("open");};
+  wrap.append(btn,menu);return wrap;}
+document.addEventListener("click",()=>document.querySelectorAll(".sel-menu.open").forEach(m=>m.classList.remove("open")));
 
-  const btn = document.getElementById("connectBtn");
-  const active = s.connected || s.connecting;
-  btn.textContent = active ? "Disconnect" : "Connect";
-  btn.classList.toggle("on", s.connected);
-  btn.disabled = s.servers.length === 0;
+function row(title,sub,control,onClick){
+  const r=el("div","row"+(onClick?" link":""));
+  r.append(el("div","grow",`<div class="r-title">${title}</div>`+(sub?`<div class="r-sub">${sub}</div>`:"")));
+  if(control)r.append(control);
+  if(onClick){const c=el("div","chev","›");r.append(c);r.onclick=onClick;}
+  return r;}
 
-  document.getElementById("proxyHint").textContent = (mode === "proxy")
-    ? ("Proxy mode: set your system/browser proxy to SOCKS5 " + s.socks + " or HTTP " + s.http + ".")
-    : "TUN mode routes all traffic system-wide (run as Administrator).";
+function openModalEl(node){const o=$("#overlay");o.innerHTML="";o.append(node);o.classList.add("open");
+  o.onclick=(e)=>{if(e.target===o)closeModal();};}
+function closeModal(){$("#overlay").classList.remove("open");$("#overlay").innerHTML="";}
 
-  const list = document.getElementById("serverList");
-  list.innerHTML = "";
-  if (s.servers.length === 0) {
-    list.innerHTML = '<div class="hint">No servers yet — paste a arnos:// URI below.</div>';
+function ctxMenu(x,y,items){const c=$("#ctx");c.innerHTML="";items.forEach(it=>{const d=el("div",it.danger?"danger":"",it.label);
+  d.onclick=()=>{c.classList.remove("open");it.fn();};c.append(d);});
+  c.style.left=Math.min(x,innerWidth-180)+"px";c.style.top=y+"px";c.classList.add("open");}
+document.addEventListener("click",()=>$("#ctx").classList.remove("open"));
+
+// ---------- pages ----------
+const main=()=>$("#main");
+function setActiveNav(r){document.querySelectorAll(".nav a[data-r]").forEach(a=>a.classList.toggle("active",a.dataset.r===r));}
+
+async function pageServers(){
+  setActiveNav("servers");await refreshState();
+  const m=main();m.innerHTML="";
+  m.append(el("h1","page-title","Серверы"));
+  const grid=el("div","srv-grid");
+
+  // left: search + list
+  const left=el("div");
+  const search=el("div","search",`<svg viewBox="0 0 24 24"><path d="M10 4a6 6 0 104.5 10.3l4.6 4.6 1.4-1.4-4.6-4.6A6 6 0 0010 4z"/></svg>`);
+  const si=el("input");si.placeholder="Введите текст для поиска";search.append(si);
+  const list=el("div");
+  function renderList(){list.innerHTML="";const q=si.value.toLowerCase();
+    const items=STATE.servers.filter(s=>s.name.toLowerCase().includes(q)||(s.host||"").includes(q));
+    if(items.length===0){list.append(el("div","empty","Нет серверов. Нажмите «Добавить», вставьте arnos://-ссылку или подписку."));return;}
+    items.forEach(s=>{
+      const c=el("div","srv"+(s.active?" active":""));
+      c.append(el("div","dot"));
+      c.append(el("div","grow",`<div class="nm">${s.name}</div><div class="hs">${s.host}:${s.port}</div>`));
+      if(pings[s.name]!=null)c.append(el("div","ping",pings[s.name]+" мс"));
+      const more=el("button","more","⋯");
+      more.onclick=(e)=>{e.stopPropagation();ctxMenu(e.clientX,e.clientY,[
+        {label:"Сделать активным",fn:()=>act(s.name)},
+        {label:"Тест пинга",fn:()=>pingOne(s.name)},
+        {label:"Удалить",danger:true,fn:()=>removeSrv(s.name)},
+      ]);};
+      c.append(more);
+      c.onclick=()=>act(s.name);
+      list.append(c);
+    });}
+  si.oninput=renderList;
+  left.append(search,list);
+
+  // right: connection
+  const right=el("div","card");
+  const conn=el("div","conn");
+  const power=el("div","power");
+  power.innerHTML=`<svg viewBox="0 0 24 24"><path d="M12 3v9" stroke-linecap="round"/><path d="M6.4 6.4a8 8 0 1011.2 0" stroke-linecap="round"/></svg>`;
+  const cstat=el("div","cstat","Отключено");
+  const cip=el("div","cip","");
+  const seg=el("div","seg");
+  ["proxy","tun"].forEach(md=>{const b=el("button",curMode===md?"on":"",md==="proxy"?"Proxy":"TUN");
+    b.onclick=()=>{curMode=md;SETTINGS.mode=md;saveSettings();[...seg.children].forEach(x=>x.classList.toggle("on",x===b));};seg.append(b);});
+  const pingBtn=el("button","btn ghost sm","Тест пинга");pingBtn.onclick=()=>pingOne(STATE.active);
+  const mini=el("div","mini","");
+  power.onclick=onPower;
+  conn.append(power,cstat,cip,seg,pingBtn,mini);
+  right.append(conn);
+
+  grid.append(left,right);m.append(grid);
+
+  function paint(){
+    const s=STATE;
+    power.className="power"+(s.connected?" on":s.connecting?" connecting":s.error?" err":"");
+    cstat.textContent=s.connecting?"Подключение…":s.connected?"Подключено":s.error?"Ошибка":"Отключено";
+    cip.textContent=s.connected?("Выходной IP · "+s.assignedIP):(s.error||"");
+    mini.innerHTML=s.connected?`<span>↓ <b>${fmtBytes(s.rx)}</b></span><span>↑ <b>${fmtBytes(s.tx)}</b></span>`:"";
+    renderList();
   }
-  for (const srv of s.servers) {
-    const el = document.createElement("div");
-    el.className = "srv" + (srv.active ? " active" : "");
-    el.innerHTML = `<span class="dot"></span>
-      <div><div class="name">${srv.name}</div><div class="host">${srv.host}:${srv.port}</div></div>
-      <div class="grow"></div><button class="x" title="Remove">✕</button>`;
-    el.addEventListener("click", (e) => {
-      if (e.target.classList.contains("x")) return;
-      api("/api/active", { method: "POST", body: JSON.stringify({ name: srv.name }) }).then(refresh);
-    });
-    el.querySelector(".x").addEventListener("click", () => {
-      api("/api/remove", { method: "POST", body: JSON.stringify({ name: srv.name }) }).then(refresh);
-    });
-    list.appendChild(el);
-  }
+  paint();
+  serversPaint=paint;
+}
+let serversPaint=null;
+
+async function act(name){try{await api("/api/active",{method:"POST",body:JSON.stringify({name})});await refreshState();serversPaint&&serversPaint();}catch(e){toast(e.message,true);}}
+async function removeSrv(name){try{await api("/api/remove",{method:"POST",body:JSON.stringify({name})});await refreshState();serversPaint&&serversPaint();toast("Удалено");}catch(e){toast(e.message,true);}}
+async function pingOne(name){if(!name)return;toast("Пинг "+name+"…");try{const r=await api("/api/ping",{method:"POST",body:JSON.stringify({name})});
+  if(r.ok){pings[name]=r.ms;toast(name+": "+r.ms+" мс");}else toast(name+": "+r.error,true);serversPaint&&serversPaint();}catch(e){toast(e.message,true);}}
+async function onPower(){try{if(STATE.connected||STATE.connecting)await api("/api/disconnect",{method:"POST"});
+  else await api("/api/connect",{method:"POST",body:JSON.stringify({mode:curMode})});
+  await refreshState();serversPaint&&serversPaint();}catch(e){toast(e.message,true);}}
+
+// Add modal
+function pageAdd(){location.hash="#/servers";openAddModal();}
+function openAddModal(){
+  let type="config";
+  const modal=el("div","modal");
+  modal.append(el("h3",null,`Добавить конфигурацию<span class="x">✕</span>`));
+  modal.querySelector(".x").onclick=closeModal;
+
+  const typeField=el("div","field",`<label>Тип</label>`);
+  typeField.append(select([
+    {v:"config",t:"Конфигурация (arnos://)"},
+    {v:"sub",t:"Подписка (URL)"},
+  ],"config",v=>{type=v;valLabel.textContent=v==="sub"?"URL подписки":"arnos://-ссылка";}));
+  const valField=el("div","field");
+  const valLabel=el("label",null,"arnos://-ссылка");valField.append(valLabel);
+  const ta=el("textarea");ta.rows=3;ta.placeholder="arnos://connect?host=…&psk=…";valField.append(ta);
+
+  const actions=el("div","modal-actions");
+  const cancel=el("button","btn ghost","Отмена");cancel.onclick=closeModal;
+  const save=el("button","btn","Сохранить");
+  save.onclick=async()=>{const v=ta.value.trim();if(!v){toast("Пусто",true);return;}
+    try{
+      if(type==="sub"){const r=await api("/api/subscribe",{method:"POST",body:JSON.stringify({url:v})});toast("Добавлено серверов: "+r.added);}
+      else{await api("/api/add",{method:"POST",body:JSON.stringify({uri:v})});toast("Сервер добавлен");}
+      closeModal();await refreshState();serversPaint&&serversPaint();
+    }catch(e){toast(e.message,true);}};
+  actions.append(cancel,save);
+  modal.append(typeField,valField,actions);
+  openModalEl(modal);
 }
 
-async function refresh() {
-  try { render(await api("/api/state")); } catch (e) {}
+async function pageSettings(){
+  setActiveNav("settings");await loadSettings();
+  const m=main();m.innerHTML="";
+  m.append(el("h1","page-title","Настройки"));
+
+  m.append(el("div","group-label","Интерфейс"));
+  const g1=el("div","rows");
+  g1.append(row("Тема",null,select([{v:"system",t:"Системная"},{v:"light",t:"Светлая"},{v:"dark",t:"Тёмная"}],
+    SETTINGS.theme||"system",v=>{SETTINGS.theme=v;applyTheme(v);saveSettings();})));
+  m.append(g1);
+
+  m.append(el("div","group-label","Настройки туннеля"));
+  const g2=el("div","rows");
+  g2.append(row("Режим",null,select([{v:"proxy",t:"Proxy"},{v:"tun",t:"TUN"}],SETTINGS.mode||"proxy",
+    v=>{SETTINGS.mode=v;curMode=v;saveSettings();})));
+  g2.append(inputRow("SOCKS-адрес",SETTINGS.socks,v=>{SETTINGS.socks=v;saveSettings();}));
+  g2.append(inputRow("HTTP-прокси адрес",SETTINGS.http,v=>{SETTINGS.http=v;saveSettings();}));
+  g2.append(inputRow("DNS",SETTINGS.dns,v=>{SETTINGS.dns=v;saveSettings();}));
+  g2.append(row("Предпочитаемый тип IP",null,select([{v:"auto",t:"Auto"},{v:"4",t:"IPv4"},{v:"6",t:"IPv6"}],
+    SETTINGS.preferredIP||"auto",v=>{SETTINGS.preferredIP=v;saveSettings();})));
+  g2.append(row("Разрешить подключения из LAN","Открыть прокси на 0.0.0.0",toggle(!!SETTINGS.allowLan,v=>{SETTINGS.allowLan=v;saveSettings();})));
+  m.append(g2);
+
+  m.append(el("div","group-label","Дополнительно"));
+  const g3=el("div","rows");
+  g3.append(row("Дополнительные настройки",null,null,()=>location.hash="#/settings/advanced"));
+  g3.append(row("Пинг","Проверить задержку до активного сервера",null,()=>pingOne(STATE.active)));
+  m.append(g3);
+
+  m.append(el("div","group-label","Другое"));
+  const g4=el("div","rows");
+  g4.append(row("Логи",null,null,()=>location.hash="#/logs"));
+  const reset=row("Сброс","Удалить все серверы и настройки",null,async()=>{
+    if(!confirm("Удалить все серверы и настройки?"))return;
+    for(const s of (STATE.servers||[]))await api("/api/remove",{method:"POST",body:JSON.stringify({name:s.name})});
+    SETTINGS=await api("/api/settings",{method:"POST",body:JSON.stringify({})});toast("Сброшено");await refreshState();});
+  reset.classList.add("danger");g4.append(reset);
+  m.append(g4);
 }
 
-document.getElementById("connectBtn").addEventListener("click", async () => {
-  const s = await api("/api/state");
-  try {
-    if (s.connected || s.connecting) await api("/api/disconnect", { method: "POST" });
-    else await api("/api/connect", { method: "POST", body: JSON.stringify({ mode }) });
-  } catch (e) { document.getElementById("err").textContent = e.message; }
-  refresh();
-});
+async function pageAdvanced(){
+  setActiveNav("settings");await loadSettings();
+  const m=main();m.innerHTML="";
+  const h=el("h1","page-title");h.append(backBtn("#/settings"));h.append(document.createTextNode("Настройки "));
+  const cr=el("span","crumb","› Дополнительные");h.append(cr);m.append(h);
 
-document.getElementById("addBtn").addEventListener("click", async () => {
-  const input = document.getElementById("uriInput");
-  if (!input.value.trim()) return;
-  try { await api("/api/add", { method: "POST", body: JSON.stringify({ uri: input.value.trim() }) }); input.value = ""; }
-  catch (e) { document.getElementById("err").textContent = e.message; }
-  refresh();
-});
+  const g=el("div","rows");
+  g.append(row("Системный прокси","Назначить прокси в системе (Windows)",toggle(!!SETTINGS.systemProxy,v=>{SETTINGS.systemProxy=v;saveSettings();})));
+  g.append(row("Автозапуск","Запускать при старте системы",toggle(!!SETTINGS.autostart,v=>{SETTINGS.autostart=v;saveSettings();})));
+  g.append(row("Включить фрагментацию","Разбивать TLS ClientHello",toggle(!!SETTINGS.fragment,v=>{SETTINGS.fragment=v;saveSettings();})));
+  g.append(row("Включить мультиплексор","Мультиплексирование соединений",toggle(!!SETTINGS.mux,v=>{SETTINGS.mux=v;saveSettings();})));
+  g.append(inputRow("DNS адрес для TUN",SETTINGS.tunDns,v=>{SETTINGS.tunDns=v;saveSettings();}));
+  m.append(g);
+  m.append(el("div","group-label","Примечание"));
+  const note=el("div","rows");
+  note.append(el("div","row",`<div class="grow"><div class="r-sub">Функциональные опции: режим, порты, DNS, LAN, тип IP. Остальные сохраняются и зарезервированы под будущие возможности протокола.</div></div>`));
+  m.append(note);
+}
 
-document.querySelectorAll("#modeSeg button").forEach((b) => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll("#modeSeg button").forEach((x) => x.classList.remove("sel"));
-    b.classList.add("sel"); mode = b.dataset.mode; refresh();
-  });
-});
+async function pageStats(){
+  setActiveNav("stats");await refreshState();
+  const m=main();m.innerHTML="";m.append(el("h1","page-title","Статистика"));
+  const t=el("div","tiles");
+  const dur=STATE.connected&&STATE.since?Math.floor(Date.now()/1000-STATE.since):0;
+  const tiles=[
+    ["Состояние",STATE.connected?"Подключено":STATE.connecting?"Подключение…":"Отключено"],
+    ["Выходной IP",STATE.assignedIP||"—"],
+    ["Сервер",STATE.active||"—"],
+    ["Время сессии",fmtDur(dur)],
+    ["Принято",fmtBytes(STATE.rx||0)],
+    ["Отправлено",fmtBytes(STATE.tx||0)],
+  ];
+  tiles.forEach(([l,v])=>{const c=el("div","card tile",`<div class="tl">${l}</div><div class="tv">${v}</div>`);t.append(c);});
+  m.append(t);
+  statsPaint=()=>pageStats();
+}
+let statsPaint=null;
 
-refresh();
-setInterval(refresh, 2000);
+async function pageLogs(){
+  setActiveNav("logs");
+  const m=main();m.innerHTML="";
+  const h=el("h1","page-title","Логи");m.append(h);
+  const bar=el("div",null);bar.style.cssText="display:flex;gap:10px;margin-bottom:14px";
+  const clr=el("button","btn ghost sm","Очистить");const rf=el("button","btn ghost sm","Обновить");
+  bar.append(rf,clr);m.append(bar);
+  const box=el("div","logbox","");m.append(box);
+  async function load(){try{const r=await api("/api/logs");box.textContent=(r.lines||[]).join("\n");box.scrollTop=box.scrollHeight;}catch(e){}}
+  rf.onclick=load;clr.onclick=async()=>{await api("/api/logs/clear",{method:"POST"});load();};
+  await load();
+}
+
+function pageAbout(){
+  setActiveNav("about");
+  const m=main();m.innerHTML="";m.append(el("h1","page-title","О программе"));
+  const c=el("div","card tile");
+  c.innerHTML=`<div class="tv" style="font-size:22px">ArnosVPN</div>
+    <div class="r-sub" style="margin-top:8px">Собственный VPN-протокол с уникальным отпечатком трафика, маскировкой под HTTPS,
+    режимами Proxy и TUN.</div>
+    <div class="mini" style="margin-top:16px"><span>Клиент: <b>desktop</b></span><span>Протокол: <b>v2</b></span></div>`;
+  m.append(c);
+}
+
+function inputRow(title,value,onSave){
+  const inp=el("input","inp");inp.value=value||"";
+  inp.onchange=()=>onSave(inp.value.trim());
+  return row(title,null,inp);
+}
+function backBtn(href){const b=el("button","back","‹");b.onclick=()=>location.hash=href;return b;}
+
+// ---------- router ----------
+const routes={
+  "":pageServers,"/":pageServers,"/servers":pageServers,"/add":pageAdd,
+  "/settings":pageSettings,"/settings/advanced":pageAdvanced,
+  "/stats":pageStats,"/logs":pageLogs,"/about":pageAbout,
+};
+function route(){serversPaint=null;statsPaint=null;const h=location.hash.replace(/^#/,"")||"/servers";
+  (routes[h]||pageServers)();}
+window.addEventListener("hashchange",route);
+
+// live refresh
+setInterval(async()=>{await refreshState();if(serversPaint)serversPaint();if(statsPaint&&location.hash.includes("stats"))pageStats();},2000);
+
+(async()=>{await loadSettings();route();})();
 </script>
 </body>
 </html>

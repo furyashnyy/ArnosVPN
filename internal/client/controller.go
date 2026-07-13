@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
 
 // Controller manages the tunnel lifecycle for the GUI: it holds the server
-// list and can connect/disconnect on demand, exposing a snapshot of state. It
-// is safe for concurrent use by the HTTP handlers.
+// list and settings, and can connect/disconnect on demand, exposing a snapshot
+// of state. It is safe for concurrent use by the HTTP handlers.
 type Controller struct {
 	cfgPath string
 
@@ -21,24 +22,16 @@ type Controller struct {
 	connected  bool
 	connecting bool
 	mode       string
-	assignedIP string
 	lastError  string
-	socksAddr  string
-	httpAddr   string
 }
 
-// NewController loads the server list from cfgPath.
+// NewController loads the server list and settings from cfgPath.
 func NewController(cfgPath string) (*Controller, error) {
 	cfg, err := LoadConfig(cfgPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Controller{
-		cfgPath:   cfgPath,
-		cfg:       cfg,
-		socksAddr: "127.0.0.1:1080",
-		httpAddr:  "127.0.0.1:8080",
-	}, nil
+	return &Controller{cfgPath: cfgPath, cfg: cfg}, nil
 }
 
 // StateServer is one server in the state snapshot.
@@ -59,6 +52,9 @@ type State struct {
 	Http       string        `json:"http"`
 	Active     string        `json:"active"`
 	Error      string        `json:"error"`
+	Rx         uint64        `json:"rx"`
+	Tx         uint64        `json:"tx"`
+	Since      int64         `json:"since"`
 	Servers    []StateServer `json:"servers"`
 }
 
@@ -70,11 +66,15 @@ func (c *Controller) State() State {
 		Connected:  c.connected,
 		Connecting: c.connecting,
 		Mode:       c.mode,
-		AssignedIP: c.assignedIP,
-		Socks:      c.socksAddr,
-		Http:       c.httpAddr,
+		Socks:      c.cfg.Settings.Socks,
+		Http:       c.cfg.Settings.Http,
 		Active:     c.cfg.Active,
 		Error:      c.lastError,
+	}
+	if c.tunnel != nil {
+		s.AssignedIP = c.tunnel.LocalIP
+		s.Rx, s.Tx = c.tunnel.Stats()
+		s.Since = c.tunnel.Since.Unix()
 	}
 	for _, srv := range c.cfg.Servers {
 		item := StateServer{Name: srv.Name, Active: srv.Name == c.cfg.Active}
@@ -86,6 +86,30 @@ func (c *Controller) State() State {
 	return s
 }
 
+// Settings returns the current settings.
+func (c *Controller) Settings() *Settings {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg.Settings
+}
+
+// SetSettings replaces settings and persists.
+func (c *Controller) SetSettings(s *Settings) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s.Socks == "" {
+		s.Socks = "127.0.0.1:1080"
+	}
+	if s.Http == "" {
+		s.Http = "127.0.0.1:8080"
+	}
+	if s.Mode == "" {
+		s.Mode = "proxy"
+	}
+	c.cfg.Settings = s
+	return c.cfg.Save(c.cfgPath)
+}
+
 // AddServer validates and stores a server, then persists.
 func (c *Controller) AddServer(uri string) error {
 	c.mu.Lock()
@@ -93,6 +117,7 @@ func (c *Controller) AddServer(uri string) error {
 	if err := c.cfg.Add("", uri); err != nil {
 		return err
 	}
+	guiLog.add("added server")
 	return c.cfg.Save(c.cfgPath)
 }
 
@@ -115,25 +140,89 @@ func (c *Controller) RemoveServer(name string) error {
 	return c.cfg.Save(c.cfgPath)
 }
 
-// Connect brings up the active server in the given mode ("proxy" or "tun").
-func (c *Controller) Connect(mode string) error {
-	if mode == "" {
-		mode = "proxy"
+// Subscribe fetches a URL whose body is a list of arnos:// URIs (one per line,
+// or base64 of the same) and adds each as a server. Returns how many were added.
+func (c *Controller) Subscribe(rawURL string) (int, error) {
+	req, err := newHTTPGet(rawURL)
+	if err != nil {
+		return 0, err
 	}
+	body, err := fetchBody(req)
+	if err != nil {
+		return 0, err
+	}
+	text := string(body)
+	if decoded, ok := maybeBase64(text); ok {
+		text = decoded
+	}
+	added := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "arnos://") {
+			continue
+		}
+		c.mu.Lock()
+		err := c.cfg.Add("", line)
+		c.mu.Unlock()
+		if err == nil {
+			added++
+		}
+	}
+	if added == 0 {
+		return 0, fmt.Errorf("no arnos:// entries found at that URL")
+	}
+	c.mu.Lock()
+	err = c.cfg.Save(c.cfgPath)
+	c.mu.Unlock()
+	guiLog.add(fmt.Sprintf("subscription: added %d server(s)", added))
+	return added, err
+}
+
+// Ping measures the TCP connect latency to the active server, in milliseconds.
+func (c *Controller) Ping(name string) (int64, error) {
+	c.mu.Lock()
+	profile, err := c.cfg.Profile(name)
+	c.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	addr := net.JoinHostPort(profile.Host, fmt.Sprint(profile.Port))
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, 6*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	_ = conn.Close()
+	return time.Since(start).Milliseconds(), nil
+}
+
+// Connect brings up the active server. mode overrides the saved setting when
+// non-empty.
+func (c *Controller) Connect(mode string) error {
 	c.mu.Lock()
 	if c.connected || c.connecting {
 		c.mu.Unlock()
 		return fmt.Errorf("already connected")
+	}
+	if mode == "" {
+		mode = c.cfg.Settings.Mode
+	}
+	if mode == "" {
+		mode = "proxy"
 	}
 	profile, err := c.cfg.Profile("")
 	if err != nil {
 		c.mu.Unlock()
 		return err
 	}
+	socks, httpAddr := lanAdjust(c.cfg.Settings.Socks, c.cfg.Settings.AllowLAN),
+		lanAdjust(c.cfg.Settings.Http, c.cfg.Settings.AllowLAN)
 	c.connecting = true
 	c.lastError = ""
 	c.mode = mode
 	c.mu.Unlock()
+
+	guiLog.add(fmt.Sprintf("connecting to %s:%d (%s mode)", profile.Host, profile.Port, mode))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	dialCtx, dialCancel := context.WithTimeout(ctx, 20*time.Second)
@@ -145,6 +234,7 @@ func (c *Controller) Connect(mode string) error {
 		c.connecting = false
 		c.lastError = err.Error()
 		c.mu.Unlock()
+		guiLog.add("connect failed: " + err.Error())
 		return err
 	}
 
@@ -153,9 +243,8 @@ func (c *Controller) Connect(mode string) error {
 	c.tunnel = tunnel
 	c.connected = true
 	c.connecting = false
-	c.assignedIP = tunnel.LocalIP
-	socks, http := c.socksAddr, c.httpAddr
 	c.mu.Unlock()
+	guiLog.add("connected, assigned " + tunnel.LocalIP)
 
 	go func() {
 		var runErr error
@@ -163,13 +252,16 @@ func (c *Controller) Connect(mode string) error {
 		case "tun":
 			runErr = RunTUN(ctx, tunnel, resolveHost(profile.Host), "arnos0")
 		default:
-			runErr = RunProxy(ctx, tunnel, socks, http)
+			runErr = RunProxy(ctx, tunnel, socks, httpAddr)
 		}
 		c.mu.Lock()
 		c.connected = false
-		c.assignedIP = ""
+		c.tunnel = nil
 		if runErr != nil && ctx.Err() == nil {
 			c.lastError = runErr.Error()
+			guiLog.add("disconnected: " + runErr.Error())
+		} else {
+			guiLog.add("disconnected")
 		}
 		c.mu.Unlock()
 		_ = tunnel.Close()
@@ -185,7 +277,6 @@ func (c *Controller) Disconnect() {
 	c.cancel = nil
 	c.tunnel = nil
 	c.connected = false
-	c.assignedIP = ""
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -193,6 +284,17 @@ func (c *Controller) Disconnect() {
 	if tunnel != nil {
 		_ = tunnel.Close()
 	}
+}
+
+// lanAdjust rebinds a 127.0.0.1 listen address to 0.0.0.0 when LAN sharing is on.
+func lanAdjust(addr string, allowLAN bool) string {
+	if !allowLAN {
+		return addr
+	}
+	if h, p, err := net.SplitHostPort(addr); err == nil && (h == "127.0.0.1" || h == "localhost") {
+		return net.JoinHostPort("0.0.0.0", p)
+	}
+	return addr
 }
 
 // resolveHost returns the first IP for host (or host if already an IP).
@@ -204,4 +306,15 @@ func resolveHost(host string) string {
 		return ips[0]
 	}
 	return host
+}
+
+// splitDNS splits a comma-separated DNS list (used by callers wiring settings).
+func splitDNS(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

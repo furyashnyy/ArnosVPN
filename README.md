@@ -156,9 +156,12 @@ arnosvpn-client connect                 # proxy mode on 127.0.0.1:1080 / :8080
 arnosvpn-client connect --mode tun      # system-wide (admin/root)
 ```
 
-`arnosvpn-client gui` opens a **graphical control panel** (a local web app on
-`127.0.0.1`) to manage servers and connect/disconnect — the easiest way to use
-the desktop app. The CLI subcommands do the same headlessly.
+`arnosvpn-client gui` opens the full **graphical app** (a local web app on
+`127.0.0.1`) — the easiest way to use the desktop client. It has a sidebar
+(Servers, Settings, Statistics, Logs, About), a big connect button, a
+Proxy/TUN switch, per-server ping, an Add dialog (single `arnos://` config or a
+subscription URL), live traffic stats, a log viewer, and light/dark themes —
+all custom-styled. The CLI subcommands do the same headlessly.
 
 Prebuilt apps (APK + Windows/Linux) are attached to each
 [GitHub Release](../../releases); see [RELEASING.md](RELEASING.md).

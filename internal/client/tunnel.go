@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"arnosvpn/internal/protocol"
@@ -24,12 +25,22 @@ type Tunnel struct {
 	session *protocol.Session
 	writeMu sync.Mutex
 
+	// Traffic counters (payload bytes), for the stats page.
+	rxBytes atomic.Uint64
+	txBytes atomic.Uint64
+	Since   time.Time
+
 	// Network parameters assigned by the server.
 	LocalIP string
 	Mask    int
 	Gateway string
 	DNS     []string
 	MTU     int
+}
+
+// Stats returns received/sent payload byte totals.
+func (t *Tunnel) Stats() (rx, tx uint64) {
+	return t.rxBytes.Load(), t.txBytes.Load()
 }
 
 // Connect dials the server described by profile and completes the handshake.
@@ -114,6 +125,7 @@ func handshake(conn *websocket.Conn, psk []byte) (*Tunnel, error) {
 	return &Tunnel{
 		conn:    conn,
 		session: session,
+		Since:   time.Now(),
 		LocalIP: welcome.IP,
 		Mask:    welcome.Mask,
 		Gateway: welcome.Gateway,
@@ -137,6 +149,7 @@ func (t *Tunnel) ReadPacket() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decrypt: %w", err)
 		}
+		t.rxBytes.Add(uint64(len(pkt)))
 		return pkt, nil
 	}
 }
@@ -146,7 +159,11 @@ func (t *Tunnel) WritePacket(pkt []byte) error {
 	frame := t.session.Seal(pkt)
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	return t.conn.WriteMessage(websocket.BinaryMessage, frame)
+	if err := t.conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+		return err
+	}
+	t.txBytes.Add(uint64(len(pkt)))
+	return nil
 }
 
 // KeepAlive periodically sends a ping so idle tunnels and NAT mappings survive.

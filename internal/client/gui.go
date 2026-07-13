@@ -5,9 +5,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -25,6 +27,8 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 	if err != nil {
 		return err
 	}
+	// Mirror log output into the ring buffer so the Logs page can show it.
+	log.SetOutput(io.MultiWriter(os.Stderr, guiLog))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +77,50 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 	mux.HandleFunc("/api/disconnect", func(w http.ResponseWriter, r *http.Request) {
 		ctrl.Disconnect()
 		writeJSON(w, ctrl.State())
+	})
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var s Settings
+			if err := decode(r, &s); err != nil {
+				httpErr(w, "bad settings")
+				return
+			}
+			if err := ctrl.SetSettings(&s); err != nil {
+				httpErr(w, err.Error())
+				return
+			}
+		}
+		writeJSON(w, ctrl.Settings())
+	})
+	mux.HandleFunc("/api/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ URL string }
+		if err := decode(r, &body); err != nil || body.URL == "" {
+			httpErr(w, "missing subscription URL")
+			return
+		}
+		n, err := ctrl.Subscribe(body.URL)
+		if err != nil {
+			httpErr(w, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"added": n})
+	})
+	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Name string }
+		_ = decode(r, &body)
+		ms, err := ctrl.Ping(body.Name)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "ms": ms})
+	})
+	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"lines": guiLog.Lines()})
+	})
+	mux.HandleFunc("/api/logs/clear", func(w http.ResponseWriter, r *http.Request) {
+		guiLog.clear()
+		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	ln, err := net.Listen("tcp", addr)
