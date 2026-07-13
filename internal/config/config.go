@@ -110,7 +110,11 @@ func Load() (*Config, error) {
 	c := &Config{
 		Domain:          env("ARNOS_DOMAIN", ""),
 		TLSMode:         TLSMode(strings.ToLower(env("ARNOS_TLS_MODE", string(TLSProxy)))),
-		ListenAddr:      env("ARNOS_LISTEN", ListenAuto),
+		// Default to a fixed, well-known internal port so a reverse proxy
+		// (Coolify/Traefik) that routes by the container's exposed port always
+		// finds the backend. "auto" (a random free port) is available but must
+		// not be the default — a random port behind a proxy causes 502s.
+		ListenAddr:      env("ARNOS_LISTEN", ":8443"),
 		PublicHost:      env("ARNOS_PUBLIC_HOST", ""),
 		PublicPort:      envInt("ARNOS_PUBLIC_PORT", 443),
 		WSPath:          env("ARNOS_WS_PATH", "/"),

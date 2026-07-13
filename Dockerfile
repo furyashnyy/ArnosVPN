@@ -24,7 +24,16 @@ COPY --from=build /out/arnosvpnctl /usr/local/bin/arnosvpnctl
 
 # Persistent state (generated PSK, ACME cache) lives here; mount a volume.
 VOLUME ["/data"]
-EXPOSE 443
+
+# Default internal port (proxy mode). Reverse proxies detect this EXPOSE, so it
+# must match ARNOS_LISTEN's default (:8443). For self mode on :443, override
+# both ARNOS_LISTEN and the published port.
+EXPOSE 8443
+
+# Let the orchestrator know when the tunnel endpoint is actually serving, so it
+# doesn't route to a not-yet-ready or crashed container (a common 502 cause).
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8443/healthz >/dev/null 2>&1 || exit 1
 
 # The container needs NET_ADMIN and /dev/net/tun at runtime:
 #   docker run --cap-add NET_ADMIN --device /dev/net/tun ...

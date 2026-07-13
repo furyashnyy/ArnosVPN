@@ -95,7 +95,7 @@ file).
 |----------|---------|---------|
 | `ARNOS_DOMAIN` | – | Public domain clients connect to. |
 | `ARNOS_TLS_MODE` | `proxy` | `proxy` (upstream Traefik terminates TLS) or `self`. |
-| `ARNOS_LISTEN` | `auto` | Internal bind. `auto`/`:0` picks a free port (logged at startup); or e.g. `:8443`. |
+| `ARNOS_LISTEN` | `:8443` | Internal bind port. Must match the port the proxy routes to (Coolify *Ports Exposes* / Dockerfile `EXPOSE`). `auto`/`:0` picks a random free port — only for non-proxied setups. |
 | `ARNOS_PUBLIC_HOST` | `ARNOS_DOMAIN` | Host clients dial (in the connect URI). |
 | `ARNOS_PUBLIC_PORT` | `443` | Port clients dial (in the connect URI). |
 | `ARNOS_PSK` | generated | Base64 32-byte pre-shared key; auto-generated + persisted if unset. |
@@ -165,8 +165,15 @@ reached ArnosVPN.
 **`404`** — the domain isn't routing to ArnosVPN. On Coolify, attach the domain
 to the service and set *Ports Exposes* to the internal port (`8443`).
 
-**`502/503/504`** — the ArnosVPN container isn't reachable behind the proxy
-(not running, wrong exposed port, or failed health check).
+**`502/503/504`** — the proxy has a route but can't reach the container. Almost
+always a **port mismatch** or a **crashed container**:
+
+- Make the proxy target port, the Dockerfile `EXPOSE`, and `ARNOS_LISTEN` all
+  agree. They all default to **`8443`** now; in Coolify set *Ports Exposes* to
+  `8443` and leave `ARNOS_LISTEN` unset (or `:8443`).
+- If the container is restarting, check its logs — it needs `NET_ADMIN` and
+  `/dev/net/tun`; without them TUN/NAT setup fails and it exits. The Docker
+  `HEALTHCHECK` hits `/healthz` so an unhealthy container is visible.
 
 **Server crash-loops on `/proc/sys/net/ipv4/ip_forward: read-only file system`**
 — enable forwarding via the container sysctl (`--sysctl net.ipv4.ip_forward=1`,
