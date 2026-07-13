@@ -1,6 +1,6 @@
-// Package protocol implements the ArnoVPN wire protocol.
+// Package protocol implements the ArnosVPN wire protocol.
 //
-// ArnoVPN ("Adaptive Reliable Network Obfuscation") tunnels IP packets inside
+// ArnosVPN ("Adaptive Reliable Network Obfuscation") tunnels IP packets inside
 // an ordinary-looking HTTPS/WebSocket connection on port 443. To a passive
 // observer the traffic is indistinguishable from a browser talking to a web
 // app behind Traefik: a real TLS handshake, a real WebSocket upgrade, and

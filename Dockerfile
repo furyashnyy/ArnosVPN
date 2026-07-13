@@ -11,16 +11,16 @@ RUN go mod download
 COPY . .
 # Static binaries so the runtime image needs no Go toolchain.
 ENV CGO_ENABLED=0
-RUN go build -trimpath -ldflags="-s -w" -o /out/arnovpn-server ./cmd/arnovpn-server \
- && go build -trimpath -ldflags="-s -w" -o /out/arnovpnctl ./cmd/arnovpnctl
+RUN go build -trimpath -ldflags="-s -w" -o /out/arnosvpn-server ./cmd/arnosvpn-server \
+ && go build -trimpath -ldflags="-s -w" -o /out/arnosvpnctl ./cmd/arnosvpnctl
 
 # ---- runtime stage --------------------------------------------------------
 FROM alpine:3.20
 # iptables + iproute2 are required to program NAT and bring up the TUN device.
 RUN apk add --no-cache iptables ip6tables iproute2 ca-certificates
 
-COPY --from=build /out/arnovpn-server /usr/local/bin/arnovpn-server
-COPY --from=build /out/arnovpnctl /usr/local/bin/arnovpnctl
+COPY --from=build /out/arnosvpn-server /usr/local/bin/arnosvpn-server
+COPY --from=build /out/arnosvpnctl /usr/local/bin/arnosvpnctl
 
 # Persistent state (generated PSK, ACME cache) lives here; mount a volume.
 VOLUME ["/data"]
@@ -28,4 +28,4 @@ EXPOSE 443
 
 # The container needs NET_ADMIN and /dev/net/tun at runtime:
 #   docker run --cap-add NET_ADMIN --device /dev/net/tun ...
-ENTRYPOINT ["/usr/local/bin/arnovpn-server"]
+ENTRYPOINT ["/usr/local/bin/arnosvpn-server"]

@@ -1,9 +1,9 @@
 # apps/android/build
 
-This directory holds the **release APK** for the ArnoVPN Android client:
+This directory holds the **release APK** for the ArnosVPN Android client:
 
 ```
-apps/android/build/arnovpn-release.apk
+apps/android/build/arnosvpn-release.apk
 ```
 
 ## How the APK gets here
@@ -30,7 +30,7 @@ Any machine with the Android SDK and JDK 17 can build the same APK:
 cd apps/android
 ./gradlew :app:assembleRelease
 # output: app/build/outputs/apk/release/app-release.apk
-cp app/build/outputs/apk/release/app-release.apk build/arnovpn-release.apk
+cp app/build/outputs/apk/release/app-release.apk build/arnosvpn-release.apk
 ```
 
 The release build is signed with the debug key so it installs directly for

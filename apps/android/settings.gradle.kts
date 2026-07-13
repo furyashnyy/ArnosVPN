@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ArnoVPN"
+rootProject.name = "ArnosVPN"
 include(":app")

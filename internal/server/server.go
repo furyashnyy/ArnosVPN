@@ -1,4 +1,4 @@
-// Package server implements the ArnoVPN tunnel server: an HTTPS/WebSocket
+// Package server implements the ArnosVPN tunnel server: an HTTPS/WebSocket
 // endpoint that authenticates clients, hands each a tunnel address, and bridges
 // their traffic through a TUN device that is NATed onto the host's WAN
 // interface so the client's exit IP becomes the server's.
@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/furyashnyy/arnosvpn/internal/config"
-	"github.com/furyashnyy/arnosvpn/internal/protocol"
+	"arnosvpn/internal/config"
+	"arnosvpn/internal/protocol"
 	"github.com/gorilla/websocket"
 )
 
@@ -53,7 +53,7 @@ func New(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	tun, err := openTUN("arno0", cfg.MTU)
+	tun, err := openTUN("arnos0", cfg.MTU)
 	if err != nil {
 		return nil, err
 	}
@@ -337,11 +337,12 @@ func (c *client) close() {
 	})
 }
 
-// Run serves the HTTPS listener with the given TLS config until the context is
-// cancelled. The description is only used for the startup log line.
-func (s *Server) Run(ctx context.Context, tlsConf *tls.Config, description string) error {
+// Serve runs the HTTP(S) server on the given listener until the context is
+// cancelled. When tlsConf is non-nil ArnosVPN terminates TLS itself (self
+// mode); when nil it speaks plain HTTP/WS and an upstream proxy (Coolify's
+// Traefik) provides TLS (proxy mode). description is only used for logging.
+func (s *Server) Serve(ctx context.Context, ln net.Listener, tlsConf *tls.Config, description string) error {
 	srv := &http.Server{
-		Addr:      s.cfg.ListenAddr,
 		Handler:   s.Handler(),
 		TLSConfig: tlsConf,
 	}
@@ -352,9 +353,11 @@ func (s *Server) Run(ctx context.Context, tlsConf *tls.Config, description strin
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	log.Printf("listening on %s (%s)", s.cfg.ListenAddr, description)
-	// Cert and key files are empty: certificates come from TLSConfig.GetCertificate.
-	err := srv.ListenAndServeTLS("", "")
+	log.Printf("listening on %s (%s)", ln.Addr(), description)
+	if tlsConf != nil {
+		ln = tls.NewListener(ln, tlsConf)
+	}
+	err := srv.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

@@ -30,8 +30,8 @@ jobs:
 
       - name: Build binaries
         run: |
-          go build -o /dev/null ./cmd/arnovpn-server
-          go build -o /dev/null ./cmd/arnovpnctl
+          go build -o /dev/null ./cmd/arnosvpn-server
+          go build -o /dev/null ./cmd/arnosvpnctl
 
       - name: Build Docker image
-        run: docker build -t arnovpn:ci .
+        run: docker build -t arnosvpn:ci .

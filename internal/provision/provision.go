@@ -25,9 +25,9 @@ type Profile struct {
 }
 
 // Scheme is the custom URI scheme the Android app registers for deep links.
-const Scheme = "arno"
+const Scheme = "arnos"
 
-// URI encodes the profile as arno://connect?host=...&port=...&path=...&psk=...
+// URI encodes the profile as arnos://connect?host=...&port=...&path=...&psk=...
 // The PSK is base64url without padding so it is URL- and QR-safe.
 func (p Profile) URI() string {
 	sni := p.SNI

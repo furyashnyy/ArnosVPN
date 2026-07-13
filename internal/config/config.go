@@ -1,4 +1,4 @@
-// Package config loads ArnoVPN server settings from the environment and, where
+// Package config loads ArnosVPN server settings from the environment and, where
 // values are missing, generates them so the server runs with zero manual
 // configuration. State that must persist across restarts (the PSK, mainly) is
 // written to a small JSON state file next to the binary.
@@ -9,12 +9,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/furyashnyy/arnosvpn/internal/protocol"
+	"arnosvpn/internal/protocol"
 )
 
 // CertProvider selects where the TLS certificate comes from.
@@ -24,19 +25,48 @@ const (
 	// CertTraefik reads certificates that Traefik (as run by Coolify) already
 	// obtained and stored, either in acme.json or as a mounted cert/key pair.
 	// This is the default: on a Coolify host the reverse proxy already manages
-	// certificates, so ArnoVPN simply reuses them.
+	// certificates, so ArnosVPN simply reuses them.
 	CertTraefik CertProvider = "traefik"
-	// CertLetsEncrypt makes ArnoVPN obtain its own certificate directly from
+	// CertLetsEncrypt makes ArnosVPN obtain its own certificate directly from
 	// Let's Encrypt via the ACME TLS-ALPN/HTTP challenge (autocert).
 	CertLetsEncrypt CertProvider = "letsencrypt"
+)
+
+// TLSMode selects who terminates TLS.
+type TLSMode string
+
+const (
+	// TLSProxy (default) means an upstream reverse proxy — Coolify's Traefik —
+	// terminates TLS and forwards the (still HTTPS-looking) WebSocket to
+	// ArnosVPN over plain HTTP on an internal port. This is the right mode when
+	// port 443 is already owned by Coolify/Traefik and you route by domain
+	// ("expose"): ArnosVPN never binds 443, and the certificate is the one
+	// Traefik/Let's Encrypt already manages for your domain.
+	TLSProxy TLSMode = "proxy"
+	// TLSSelf means ArnosVPN terminates TLS itself using the cert provider
+	// (Traefik acme.json / mounted PEM, or Let's Encrypt). Use this for a
+	// standalone deployment that owns its listen port.
+	TLSSelf TLSMode = "self"
+
+	// ListenAuto asks the OS for a free port instead of pinning one.
+	ListenAuto = "auto"
 )
 
 // Config is the fully-resolved server configuration.
 type Config struct {
 	// Domain the certificate is valid for (also the SNI clients connect with).
 	Domain string
-	// ListenAddr for the HTTPS/WSS listener.
+	// TLSMode selects who terminates TLS (proxy = upstream Traefik, self = us).
+	TLSMode TLSMode
+	// ListenAddr for the listener. "auto" (or a :0 port) picks a free port,
+	// which is handy behind Coolify's proxy where the exact internal port does
+	// not matter — the chosen port is logged at startup.
 	ListenAddr string
+	// PublicHost / PublicPort are what clients actually dial (the reverse
+	// proxy's public endpoint). They appear in the connect URI. They are
+	// independent of ListenAddr, which is the internal bind.
+	PublicHost string
+	PublicPort int
 	// WSPath is the benign-looking WebSocket path clients upgrade on.
 	WSPath string
 	// PSK is the 32-byte pre-shared key shared with clients.
@@ -78,29 +108,43 @@ type persisted struct {
 // anything that is missing.
 func Load() (*Config, error) {
 	c := &Config{
-		Domain:          env("ARNO_DOMAIN", ""),
-		ListenAddr:      env("ARNO_LISTEN", ":443"),
-		WSPath:          env("ARNO_WS_PATH", "/"),
-		TunnelCIDR:      env("ARNO_TUNNEL_CIDR", protocol.DefaultTunnelCIDR),
-		Gateway:         env("ARNO_GATEWAY", protocol.DefaultGateway),
-		WANInterface:    env("ARNO_WAN_IFACE", ""),
+		Domain:          env("ARNOS_DOMAIN", ""),
+		TLSMode:         TLSMode(strings.ToLower(env("ARNOS_TLS_MODE", string(TLSProxy)))),
+		ListenAddr:      env("ARNOS_LISTEN", ListenAuto),
+		PublicHost:      env("ARNOS_PUBLIC_HOST", ""),
+		PublicPort:      envInt("ARNOS_PUBLIC_PORT", 443),
+		WSPath:          env("ARNOS_WS_PATH", "/"),
+		TunnelCIDR:      env("ARNOS_TUNNEL_CIDR", protocol.DefaultTunnelCIDR),
+		Gateway:         env("ARNOS_GATEWAY", protocol.DefaultGateway),
+		WANInterface:    env("ARNOS_WAN_IFACE", ""),
 		CertProvider:    CertProvider(strings.ToLower(env("CERT_PROVIDER", string(CertTraefik)))),
-		TraefikACMEPath: env("ARNO_TRAEFIK_ACME", "/traefik/acme.json"),
-		TLSCertPath:     env("ARNO_TLS_CERT", ""),
-		TLSKeyPath:      env("ARNO_TLS_KEY", ""),
-		ACMEEmail:       env("ARNO_ACME_EMAIL", ""),
-		ACMECacheDir:    env("ARNO_ACME_CACHE", "/data/acme"),
-		StateFile:       env("ARNO_STATE_FILE", "/data/arno-state.json"),
-		MTU:             envInt("ARNO_MTU", protocol.DefaultMTU),
-		DNS:             envList("ARNO_DNS", []string{"1.1.1.1", "1.0.0.1"}),
+		TraefikACMEPath: env("ARNOS_TRAEFIK_ACME", "/traefik/acme.json"),
+		TLSCertPath:     env("ARNOS_TLS_CERT", ""),
+		TLSKeyPath:      env("ARNOS_TLS_KEY", ""),
+		ACMEEmail:       env("ARNOS_ACME_EMAIL", ""),
+		ACMECacheDir:    env("ARNOS_ACME_CACHE", "/data/acme"),
+		StateFile:       env("ARNOS_STATE_FILE", "/data/arnos-state.json"),
+		MTU:             envInt("ARNOS_MTU", protocol.DefaultMTU),
+		DNS:             envList("ARNOS_DNS", []string{"1.1.1.1", "1.0.0.1"}),
 	}
 
-	if c.CertProvider != CertTraefik && c.CertProvider != CertLetsEncrypt {
-		return nil, fmt.Errorf("CERT_PROVIDER must be %q or %q, got %q",
-			CertTraefik, CertLetsEncrypt, c.CertProvider)
+	if c.TLSMode != TLSProxy && c.TLSMode != TLSSelf {
+		return nil, fmt.Errorf("ARNOS_TLS_MODE must be %q or %q, got %q",
+			TLSProxy, TLSSelf, c.TLSMode)
 	}
-	if c.CertProvider == CertLetsEncrypt && c.Domain == "" {
-		return nil, fmt.Errorf("ARNO_DOMAIN is required when CERT_PROVIDER=letsencrypt")
+	if c.PublicHost == "" {
+		c.PublicHost = c.Domain
+	}
+
+	// Certificate settings only matter when ArnosVPN terminates TLS itself.
+	if c.TLSMode == TLSSelf {
+		if c.CertProvider != CertTraefik && c.CertProvider != CertLetsEncrypt {
+			return nil, fmt.Errorf("CERT_PROVIDER must be %q or %q, got %q",
+				CertTraefik, CertLetsEncrypt, c.CertProvider)
+		}
+		if c.CertProvider == CertLetsEncrypt && c.Domain == "" {
+			return nil, fmt.Errorf("ARNOS_DOMAIN is required when CERT_PROVIDER=letsencrypt")
+		}
 	}
 
 	if err := c.resolvePSK(); err != nil {
@@ -109,14 +153,25 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// resolvePSK uses ARNO_PSK if set, otherwise loads a persisted key, otherwise
+// ResolveListener opens the TCP listener for ListenAddr, resolving "auto" (or a
+// :0 port) to an OS-assigned free port. The returned listener's address
+// reports the actual port chosen.
+func (c *Config) ResolveListener() (net.Listener, error) {
+	addr := c.ListenAddr
+	if addr == "" || strings.EqualFold(addr, ListenAuto) {
+		addr = ":0"
+	}
+	return net.Listen("tcp", addr)
+}
+
+// resolvePSK uses ARNOS_PSK if set, otherwise loads a persisted key, otherwise
 // generates one and persists it. This is what lets the server "configure
 // itself": the operator never has to invent or copy a key by hand.
 func (c *Config) resolvePSK() error {
-	if v := os.Getenv("ARNO_PSK"); v != "" {
+	if v := os.Getenv("ARNOS_PSK"); v != "" {
 		psk, err := decodeKey(v)
 		if err != nil {
-			return fmt.Errorf("ARNO_PSK: %w", err)
+			return fmt.Errorf("ARNOS_PSK: %w", err)
 		}
 		c.PSK = psk
 		return nil

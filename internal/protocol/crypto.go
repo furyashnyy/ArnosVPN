@@ -16,7 +16,7 @@ import (
 )
 
 // authInfo domain-separates the handshake HMAC from key derivation.
-const authInfo = "arno-auth-v1"
+const authInfo = "arnos-auth-v1"
 
 // RandBytes returns n cryptographically-random bytes.
 func RandBytes(n int) ([]byte, error) {
@@ -69,11 +69,11 @@ func DeriveSession(psk, clientSalt, serverSalt []byte, isServer bool) (*Session,
 	salt = append(salt, clientSalt...)
 	salt = append(salt, serverSalt...)
 
-	c2s, err := expandKey(psk, salt, "arno-c2s-v1")
+	c2s, err := expandKey(psk, salt, "arnos-c2s-v1")
 	if err != nil {
 		return nil, err
 	}
-	s2c, err := expandKey(psk, salt, "arno-s2c-v1")
+	s2c, err := expandKey(psk, salt, "arnos-s2c-v1")
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *Session) Seal(plaintext []byte) []byte {
 }
 
 // ErrShortFrame is returned when a data frame is too small to contain a counter.
-var ErrShortFrame = errors.New("arno: short data frame")
+var ErrShortFrame = errors.New("arnos: short data frame")
 
 // Open decrypts one data frame produced by Seal.
 func (s *Session) Open(frame []byte) ([]byte, error) {

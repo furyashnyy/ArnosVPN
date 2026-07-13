@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/furyashnyy/arnosvpn/internal/config"
+	"arnosvpn/internal/config"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )

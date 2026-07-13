@@ -16,7 +16,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ArnoVPN">
+        android:theme="@style/Theme.ArnosVPN">
 
         <activity
             android:name=".MainActivity"
@@ -26,17 +26,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- One-tap provisioning: arno://connect?... deep links open here. -->
+            <!-- One-tap provisioning: arnos://connect?... deep links open here. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="arno" android:host="connect" />
+                <data android:scheme="arnos" android:host="connect" />
             </intent-filter>
         </activity>
 
         <service
-            android:name=".ArnoVpnService"
+            android:name=".ArnosVpnService"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse">

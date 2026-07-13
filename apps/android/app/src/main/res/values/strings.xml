@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ArnoVPN</string>
+    <string name="app_name">ArnosVPN</string>
     <string name="connect">Connect</string>
     <string name="scan_qr">Scan QR</string>
     <string name="paste_uri">Paste URI</string>

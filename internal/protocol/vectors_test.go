@@ -10,8 +10,8 @@ import (
 // same constants, so the two independent implementations are guaranteed to
 // interoperate. If you change the crypto, regenerate both.
 const (
-	vecAuthB64  = "zLJxYyyzQhwNFXcTqynuTczB1YssAli3ynQBI2vBLd4="
-	vecFrameHex = "0000000000000000674d301ce11e2596a02e38cd5d46102ffb75ed5a2129515e346affdc6513f78fade3a103"
+	vecAuthB64  = "XcfGTzUpsovj7VPGo5bqQcC05d9BTevquB8kEtkiZQI="
+	vecFrameHex = "0000000000000000b1e173b0ae947e1dfe8535f1ba3e4708f268cd06661a266cf495e88ef6890555a6a22ccc04"
 )
 
 func vecInputs() (psk, cs, ss []byte, ts int64, pt []byte) {
@@ -27,7 +27,7 @@ func vecInputs() (psk, cs, ss []byte, ts int64, pt []byte) {
 	for i := range ss {
 		ss[i] = byte(0xb0 + i)
 	}
-	return psk, cs, ss, 1700000000, []byte("arno-vpn-test-vector")
+	return psk, cs, ss, 1700000000, []byte("arnos-vpn-test-vector")
 }
 
 func TestVectorAuth(t *testing.T) {

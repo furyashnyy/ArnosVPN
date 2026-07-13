@@ -10,20 +10,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/furyashnyy/arnosvpn/internal/config"
+	"arnosvpn/internal/config"
 )
 
 // traefikProvider serves the certificate Traefik manages. It supports two
 // on-disk shapes, in priority order:
 //
-//  1. A mounted PEM cert/key pair (ARNO_TLS_CERT / ARNO_TLS_KEY). This is the
+//  1. A mounted PEM cert/key pair (ARNOS_TLS_CERT / ARNOS_TLS_KEY). This is the
 //     simplest Coolify setup: expose the proxy's cert files to the container.
-//  2. Traefik's acme.json (ARNO_TRAEFIK_ACME), the store Traefik writes when it
+//  2. Traefik's acme.json (ARNOS_TRAEFIK_ACME), the store Traefik writes when it
 //     obtains certificates itself. We decode the base64 PEM blobs and pick the
-//     certificate whose domain matches ARNO_DOMAIN (or the only one present).
+//     certificate whose domain matches ARNOS_DOMAIN (or the only one present).
 //
 // The chosen source is watched by mtime and reloaded on change, so a Traefik
-// renewal is served without restarting ArnoVPN.
+// renewal is served without restarting ArnosVPN.
 type traefikProvider struct {
 	cfg *config.Config
 

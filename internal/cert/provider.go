@@ -3,7 +3,7 @@
 //
 //   - "traefik" (default): reuse the certificate Traefik already manages on a
 //     Coolify host, read either from Traefik's acme.json or from a mounted
-//     PEM cert/key pair. ArnoVPN never touches ACME in this mode.
+//     PEM cert/key pair. ArnosVPN never touches ACME in this mode.
 //   - "letsencrypt": obtain and renew a certificate directly from Let's
 //     Encrypt using the ACME TLS-ALPN-01 challenge on the same :443 listener.
 //
@@ -16,7 +16,7 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/furyashnyy/arnosvpn/internal/config"
+	"arnosvpn/internal/config"
 )
 
 // Provider builds a tls.Config for the listener.

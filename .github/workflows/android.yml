@@ -1,6 +1,6 @@
 name: android
 
-# Builds the ArnoVPN Android app and commits the release APK to
+# Builds the ArnosVPN Android app and commits the release APK to
 # apps/android/build/ so it ships alongside the source. GitHub-hosted runners
 # can reach Google's Android repositories, so the real APK is produced here.
 #
@@ -52,24 +52,24 @@ jobs:
       - name: Stage APK into apps/android/build
         run: |
           mkdir -p build
-          cp app/build/outputs/apk/release/app-release.apk build/arnovpn-release.apk
-          ls -l build/arnovpn-release.apk
+          cp app/build/outputs/apk/release/app-release.apk build/arnosvpn-release.apk
+          ls -l build/arnosvpn-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: arnovpn-release-apk
-          path: apps/android/build/arnovpn-release.apk
+          name: arnosvpn-release-apk
+          path: apps/android/build/arnosvpn-release.apk
 
       - name: Commit APK back to the branch
         working-directory: .
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f apps/android/build/arnovpn-release.apk
+          git add -f apps/android/build/arnosvpn-release.apk
           if git diff --cached --quiet; then
             echo "APK unchanged; nothing to commit."
           else
-            git commit -m "ci: build ArnoVPN release APK [skip ci]"
+            git commit -m "ci: build ArnosVPN release APK [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi

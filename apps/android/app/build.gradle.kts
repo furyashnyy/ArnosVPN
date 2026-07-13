@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.arnovpn.android"
+    namespace = "com.arnosvpn.android"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.arnovpn.android"
+        applicationId = "com.arnosvpn.android"
         minSdk = 28 // ChaCha20-Poly1305 JCE cipher is available from API 28.
         targetSdk = 35
         versionCode = 1

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="arno_primary">#2E6BE6</color>
-    <color name="arno_on_primary">#FFFFFF</color>
+    <color name="arnos_primary">#2E6BE6</color>
+    <color name="arnos_on_primary">#FFFFFF</color>
     <color name="ic_launcher_background">#0E2A5E</color>
 </resources>

@@ -1,22 +1,20 @@
-# ArnoVPN — Coolify + Traefik ready compose file.
+# ArnosVPN — private, single-user, Coolify-friendly compose file.
 #
-# ArnoVPN terminates real TLS itself on :443 (that is what makes the traffic
-# look like ordinary HTTPS). Two ways to expose it behind Coolify's Traefik:
+# Built locally, never pushed to a registry (no `image:` tag).
 #
-#   A) TLS passthrough (default, keeps ArnoVPN's own certificate on the wire).
-#      Traefik routes raw TCP by SNI to this container; ArnoVPN presents the
-#      certificate it reads from Traefik's acme.json. Uncomment the labels.
+# Default = PROXY MODE (recommended for Coolify): ArnosVPN listens on an
+# internal port and Coolify's Traefik terminates TLS for your domain and
+# forwards the (HTTPS-looking) WebSocket to it. This is exactly the "expose"
+# workflow — you do NOT publish host 443, so there is no conflict with the port
+# Coolify's proxy already owns, and SSL is the certificate Traefik/Let's Encrypt
+# already manages for your domain.
 #
-#   B) Standalone on a dedicated IP/port. Publish 443 directly (the `ports`
-#      block below) and point DNS at the host. Use CERT_PROVIDER=letsencrypt
-#      to have ArnoVPN obtain its own certificate.
-#
-# See deploy/coolify.md for step-by-step Coolify instructions.
+# In Coolify: set a domain for this service and point its "Ports Exposes" at the
+# internal port below (8443). Nothing else to configure.
 
 services:
-  arnovpn:
+  arnosvpn:
     build: .
-    image: arnovpn:latest
     restart: unless-stopped
 
     # Required to create the TUN device and program NAT.
@@ -27,42 +25,43 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
 
+    # Internal port Coolify's Traefik proxies to. Not published on the host, so
+    # it never collides with 443.
+    expose:
+      - "8443"
+
     environment:
-      # Domain clients connect to (must match the certificate).
-      ARNO_DOMAIN: ${ARNO_DOMAIN:?set ARNO_DOMAIN}
-      # Certificate source: "traefik" (default) reuses Coolify/Traefik certs;
-      # "letsencrypt" makes ArnoVPN obtain its own.
-      CERT_PROVIDER: ${CERT_PROVIDER:-traefik}
-      # Where Traefik stores certificates (mounted read-only below). Coolify's
-      # bundled proxy typically writes /data/coolify/proxy/acme.json.
-      ARNO_TRAEFIK_ACME: /traefik/acme.json
-      # Used only when CERT_PROVIDER=letsencrypt.
-      ARNO_ACME_EMAIL: ${ARNO_ACME_EMAIL:-}
+      # The public domain clients dial (Coolify's Traefik answers on 443 for it).
+      ARNOS_DOMAIN: ${ARNOS_DOMAIN:?set ARNOS_DOMAIN}
+      # proxy = Coolify/Traefik terminates TLS (default). self = ArnosVPN does.
+      ARNOS_TLS_MODE: ${ARNOS_TLS_MODE:-proxy}
+      # Internal bind. Fixed so Coolify's "expose" always knows where to route.
+      ARNOS_LISTEN: ":8443"
+      # What clients dial publicly (goes into the connect URI/QR).
+      ARNOS_PUBLIC_PORT: "443"
       # Optional: pin a pre-shared key; otherwise one is generated into /data.
-      ARNO_PSK: ${ARNO_PSK:-}
+      ARNOS_PSK: ${ARNOS_PSK:-}
 
     volumes:
-      - arno-data:/data
-      # Mount Traefik's certificate store read-only for CERT_PROVIDER=traefik.
-      # Adjust the host path to your Coolify/Traefik acme.json location.
-      - ${TRAEFIK_ACME_PATH:-/data/coolify/proxy/acme.json}:/traefik/acme.json:ro
+      - arnos-data:/data
 
-    # --- Option B: publish 443 directly (standalone). ---
-    ports:
-      - "443:443"
-
-    # --- Option A: Traefik TLS passthrough (comment out `ports` above). ---
-    # labels:
-    #   - traefik.enable=true
-    #   - traefik.tcp.routers.arnovpn.rule=HostSNI(`${ARNO_DOMAIN}`)
-    #   - traefik.tcp.routers.arnovpn.entrypoints=websecure
-    #   - traefik.tcp.routers.arnovpn.tls.passthrough=true
-    #   - traefik.tcp.services.arnovpn.loadbalancer.server.port=443
-    # networks:
-    #   - coolify
+    # ---------------------------------------------------------------------
+    # ALTERNATIVE — "random published port, but with SSL" (self mode).
+    # ArnosVPN terminates TLS itself using the certificate Traefik already has
+    # in acme.json, on a host port Docker assigns at random (short `ports`
+    # syntax with only a container port publishes to a random host port).
+    # Set ARNOS_TLS_MODE=self, mount acme.json, and set ARNOS_PUBLIC_PORT to the
+    # random host port Docker chose (see `docker compose port arnosvpn 8443`).
+    #
+    # ports:
+    #   - "8443"                       # -> random host port, container :8443
+    # environment then also needs:
+    #   ARNOS_TLS_MODE: "self"
+    #   CERT_PROVIDER: "traefik"
+    #   ARNOS_TRAEFIK_ACME: "/traefik/acme.json"
+    # volumes then also needs:
+    #   - ${TRAEFIK_ACME_PATH:-/data/coolify/proxy/acme.json}:/traefik/acme.json:ro
+    # ---------------------------------------------------------------------
 
 volumes:
-  arno-data:
-# networks:
-#   coolify:
-#     external: true
+  arnos-data:

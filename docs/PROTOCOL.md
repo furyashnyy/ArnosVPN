@@ -1,6 +1,6 @@
-# ArnoVPN wire protocol
+# ArnosVPN wire protocol
 
-ArnoVPN ("Adaptive Reliable Network Obfuscation") tunnels IP packets inside an
+ArnosVPN ("Adaptive Reliable Network Obfuscation") tunnels IP packets inside an
 ordinary-looking HTTPS/WebSocket connection. This document is the normative
 reference; the Go server (`internal/protocol`) and the Android client
 (`apps/android/.../protocol`) both implement it and are pinned together by the
@@ -37,7 +37,7 @@ All handshake fields are carried in WebSocket **text** frames as JSON.
 - `salt`: 16 random bytes (standard base64).
 - `ts`: client Unix time (seconds). The server rejects a skew greater than
   ±90 s to bound replay.
-- `auth`: `base64( HMAC-SHA256(PSK, "arno-auth-v1" || salt || ascii(ts)) )`.
+- `auth`: `base64( HMAC-SHA256(PSK, "arnos-auth-v1" || salt || ascii(ts)) )`.
   Verified in constant time.
 
 ### 2. Server → Client: `welcome` (or `error`)
@@ -58,8 +58,8 @@ Both sides compute, with HKDF-SHA256 (RFC 5869):
 ```
 salt = clientSalt || serverSalt
 PRK  = HKDF-Extract(salt, PSK)
-Kc2s = HKDF-Expand(PRK, "arno-c2s-v1", 32)   # client -> server
-Ks2c = HKDF-Expand(PRK, "arno-s2c-v1", 32)   # server -> client
+Kc2s = HKDF-Expand(PRK, "arnos-c2s-v1", 32)   # client -> server
+Ks2c = HKDF-Expand(PRK, "arnos-s2c-v1", 32)   # server -> client
 ```
 
 The client encrypts with `Kc2s` and decrypts with `Ks2c`; the server does the
@@ -96,7 +96,7 @@ keepalive. Idle tunnels are kept warm with a ~20–25 s interval.
 A complete client profile is a single URI (also rendered as a QR code):
 
 ```
-arno://connect?host=<domain>&port=443&path=<ws-path>&sni=<domain>&psk=<b64url>&name=<label>
+arnos://connect?host=<domain>&port=443&path=<ws-path>&sni=<domain>&psk=<b64url>&name=<label>
 ```
 
 `psk` is base64url without padding. Parsing/encoding lives in

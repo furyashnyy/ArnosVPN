@@ -1,4 +1,4 @@
-module github.com/furyashnyy/arnosvpn
+module arnosvpn
 
 go 1.24
 

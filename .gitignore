@@ -4,7 +4,7 @@
 *.out
 
 # Local server state / secrets
-arno-state.json
+arnos-state.json
 /data/
 *.png
 
