@@ -1,7 +1,17 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Single source of truth for the version: /version.json at the repo root. The
+// release workflow reads the same file to tag and publish, so the APK version
+// and the GitHub Release tag never drift.
+val versionInfo = JsonSlurper()
+    .parseText(rootProject.file("../../version.json").readText()) as Map<*, *>
+val appVersionName = versionInfo["version"] as String
+val appVersionCode = (versionInfo["versionCode"] as Number).toInt()
 
 android {
     namespace = "com.arnosvpn.android"
@@ -11,8 +21,21 @@ android {
         applicationId = "com.arnosvpn.android"
         minSdk = 28 // ChaCha20-Poly1305 JCE cipher is available from API 28.
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        // Stable release key (apps/android/release.jks). Using one fixed key for
+        // every build is what lets the app UPDATE in place — CI's debug key is
+        // regenerated each run, which is why differently-signed APKs failed with
+        // "conflicts with another package".
+        create("release") {
+            storeFile = file("../release.jks")
+            storePassword = System.getenv("ARNOS_KEYSTORE_PASSWORD") ?: "arnosvpn"
+            keyAlias = System.getenv("ARNOS_KEY_ALIAS") ?: "arnos"
+            keyPassword = System.getenv("ARNOS_KEY_PASSWORD") ?: "arnosvpn"
+        }
     }
 
     buildTypes {
@@ -22,10 +45,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // A debug signing config is applied so `assembleRelease` in CI
-            // produces an installable APK without provisioning secrets. Replace
-            // with a real keystore for Play distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

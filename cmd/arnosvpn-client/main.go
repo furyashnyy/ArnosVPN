@@ -39,6 +39,8 @@ func main() {
 		cmdUse(cfgPath, os.Args[2:])
 	case "connect", "up":
 		cmdConnect(cfgPath, os.Args[2:])
+	case "gui":
+		cmdGUI(cfgPath, os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -57,6 +59,7 @@ Usage:
   arnosvpn-client use <name>                         set the active server
   arnosvpn-client rm <name>                          remove a server
   arnosvpn-client connect [name] [flags]             connect
+  arnosvpn-client gui [--addr 127.0.0.1:7654]        open the graphical panel
 
 Connect flags:
   --mode  proxy|tun   proxy = local SOCKS5+HTTP (default); tun = system-wide
@@ -190,6 +193,20 @@ func cmdConnect(path string, args []string) {
 		fatal(err)
 	}
 	fmt.Println("disconnected.")
+}
+
+func cmdGUI(path string, args []string) {
+	fs := flag.NewFlagSet("gui", flag.ExitOnError)
+	addr := fs.String("addr", "127.0.0.1:7654", "control-panel listen address")
+	_ = fs.Parse(args)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Println("opening ArnosVPN control panel in your browser…")
+	if err := client.RunGUI(ctx, path, *addr); err != nil {
+		fatal(err)
+	}
 }
 
 // resolve returns the first IP for host, or host itself if it's already an IP.

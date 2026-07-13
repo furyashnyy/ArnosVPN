@@ -148,12 +148,20 @@ servers and connects in one of two modes:
 | **TUN** | `--mode tun` | Creates a system-wide TUN adapter (wintun on Windows) and routes **all** traffic through the server. Requires Administrator/root. |
 
 ```bash
+arnosvpn-client gui                     # graphical control panel in your browser
 arnosvpn-client add "arnos://connect?host=…&psk=…" home   # save a server
 arnosvpn-client list                                       # view your servers
 arnosvpn-client use home                                   # pick the active one
 arnosvpn-client connect                 # proxy mode on 127.0.0.1:1080 / :8080
 arnosvpn-client connect --mode tun      # system-wide (admin/root)
 ```
+
+`arnosvpn-client gui` opens a **graphical control panel** (a local web app on
+`127.0.0.1`) to manage servers and connect/disconnect — the easiest way to use
+the desktop app. The CLI subcommands do the same headlessly.
+
+Prebuilt apps (APK + Windows/Linux) are attached to each
+[GitHub Release](../../releases); see [RELEASING.md](RELEASING.md).
 
 Every connection uses a fresh fingerprint (random path, rotating User-Agent,
 random per-frame padding), so no two sessions look alike on the wire.

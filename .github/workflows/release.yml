@@ -1,0 +1,108 @@
+name: release
+
+# Cuts a GitHub Release whenever the version in /version.json changes (or on
+# manual dispatch): builds the signed Android APK and the Windows/Linux desktop
+# apps, then publishes them as release assets under the tag v<version>.
+#
+# Bump the version:  edit version.json -> commit -> push to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'version.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: |
+          VERSION=$(jq -r .version version.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
+      - name: Skip if tag already exists
+        id: check
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.ver.outputs.tag }} already exists — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---- Android APK -----------------------------------------------------
+      - name: Set up JDK 17
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        if: steps.check.outputs.exists == 'false'
+        uses: android-actions/setup-android@v3
+
+      - name: Build signed APK
+        if: steps.check.outputs.exists == 'false'
+        working-directory: apps/android
+        run: |
+          yes | sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+          ./gradlew :app:assembleRelease --no-daemon
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/app-release.apk \
+             "../../dist/arnosvpn-${{ steps.ver.outputs.version }}.apk"
+
+      # ---- Desktop apps ----------------------------------------------------
+      - name: Set up Go
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build desktop apps
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            -o "dist/arnosvpn-client-windows-amd64.exe" ./cmd/arnosvpn-client
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            -o "dist/arnosvpn-client-linux-amd64" ./cmd/arnosvpn-client
+          # Bundle wintun.dll for TUN mode (best effort; proxy/GUI mode needs none).
+          set +e
+          for url in \
+            "https://www.wireguard.com/download/wintun/wintun-0.14.1.zip" \
+            "https://download.wireguard.com/wintun/wintun-0.14.1.zip"; do
+            curl -fsSL "$url" -o wintun.zip && break
+          done
+          if [ -s wintun.zip ] && unzip -o wintun.zip -d wt >/dev/null 2>&1; then
+            cp wt/wintun/bin/amd64/wintun.dll dist/wintun.dll
+          fi
+          ls -l dist
+
+      - name: Publish release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ArnosVPN ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/arnosvpn-${{ steps.ver.outputs.version }}.apk
+            dist/arnosvpn-client-windows-amd64.exe
+            dist/arnosvpn-client-linux-amd64
+            dist/wintun.dll

@@ -1,0 +1,50 @@
+name: cleanup-artifacts
+
+# Deletes workflow-run artifacts (the APK/exe uploaded by the android/desktop
+# workflows for convenience) older than a retention window, so they don't pile
+# up. Released binaries live on the Releases page and are never touched here.
+
+on:
+  schedule:
+    - cron: '0 3 * * 0' # weekly, Sundays 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: 'Delete artifacts older than this many days'
+        default: '7'
+        required: false
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const maxAgeDays = Number(context.payload.inputs?.max_age_days || 7);
+            const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+            let deleted = 0, kept = 0;
+            const perPage = 100;
+            for (let page = 1; ; page++) {
+              const res = await github.rest.actions.listArtifactsForRepo({
+                owner: context.repo.owner, repo: context.repo.repo, per_page: perPage, page,
+              });
+              const arts = res.data.artifacts;
+              if (arts.length === 0) break;
+              for (const a of arts) {
+                if (new Date(a.created_at).getTime() < cutoff) {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id,
+                  });
+                  deleted++;
+                } else {
+                  kept++;
+                }
+              }
+              if (arts.length < perPage) break;
+            }
+            core.info(`Deleted ${deleted} artifact(s) older than ${maxAgeDays}d, kept ${kept}.`);

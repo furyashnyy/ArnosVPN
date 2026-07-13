@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ArnosVPN</title>
+<style>
+  :root {
+    --bg: #0f1220; --card: #1a1f36; --muted: #8b93b0; --text: #eef1f8;
+    --primary: #3b5bff; --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --line: #2a3152;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2142, var(--bg)); color: var(--text);
+    min-height: 100vh; display: flex; justify-content: center;
+  }
+  .wrap { width: 100%; max-width: 460px; padding: 28px 20px 40px; }
+  h1 { font-size: 26px; margin: 6px 0 0; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px; margin-top: 22px; }
+  .status { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .ring { width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--muted); box-shadow: 0 0 0 14px rgba(139,147,176,.14); transition: .3s; }
+  .ring svg { width: 52px; height: 52px; fill: #fff; }
+  .state-title { font-size: 20px; font-weight: 700; }
+  .state-sub { color: var(--muted); font-size: 13px; min-height: 18px; text-align: center; }
+  button { font: inherit; cursor: pointer; border: none; border-radius: 999px; }
+  .connect { width: 100%; padding: 16px; font-size: 16px; font-weight: 700; color: #fff;
+    background: var(--primary); margin-top: 22px; }
+  .connect.on { background: var(--green); }
+  .connect:disabled { opacity: .6; cursor: default; }
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  .row input { flex: 1; background: #10152b; border: 1px solid var(--line);
+    color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .row .add { padding: 0 18px; background: #263056; color: #fff; }
+  .seg { display: flex; gap: 6px; margin-top: 16px; }
+  .seg button { flex: 1; padding: 10px; background: #10152b; color: var(--muted); border: 1px solid var(--line); }
+  .seg button.sel { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .servers { margin-top: 22px; }
+  .servers h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 0 0 8px; }
+  .srv { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line);
+    border-radius: 14px; margin-bottom: 8px; background: #10152b; }
+  .srv .dot { width: 9px; height: 9px; border-radius: 50%; background: #394264; }
+  .srv.active .dot { background: var(--green); }
+  .srv .name { font-weight: 600; }
+  .srv .host { color: var(--muted); font-size: 12px; }
+  .srv .grow { flex: 1; }
+  .srv .x { color: var(--muted); background: transparent; padding: 6px 10px; font-size: 18px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.5; }
+  .err { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 16px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ArnosVPN</h1>
+    <div class="sub">Secure encrypted tunnel · desktop</div>
+
+    <div class="card">
+      <div class="status">
+        <div id="ring" class="ring">
+          <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V5z"/></svg>
+        </div>
+        <div id="stateTitle" class="state-title">Disconnected</div>
+        <div id="stateSub" class="state-sub"></div>
+      </div>
+
+      <div class="seg" id="modeSeg">
+        <button data-mode="proxy" class="sel">Proxy (SOCKS/HTTP)</button>
+        <button data-mode="tun">TUN (system-wide)</button>
+      </div>
+
+      <button id="connectBtn" class="connect">Connect</button>
+      <div id="err" class="err"></div>
+    </div>
+
+    <div class="servers">
+      <h3>Your servers</h3>
+      <div id="serverList"></div>
+      <div class="row">
+        <input id="uriInput" placeholder="arnos://connect?host=…&psk=…" />
+        <button class="add" id="addBtn">Add</button>
+      </div>
+      <div class="hint" id="proxyHint"></div>
+    </div>
+  </div>
+
+<script>
+let mode = "proxy";
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
+}
+
+function svgColor(s) {
+  if (s.connecting) return "var(--amber)";
+  if (s.connected) return "var(--green)";
+  if (s.error) return "var(--red)";
+  return "var(--muted)";
+}
+
+function render(s) {
+  const ring = document.getElementById("ring");
+  const c = svgColor(s);
+  ring.style.background = c;
+  ring.style.boxShadow = "0 0 0 14px " + c.replace("var(--muted)", "#8b93b0") + "22";
+  document.getElementById("stateTitle").textContent =
+    s.connecting ? "Connecting…" : s.connected ? "Connected" : s.error ? "Error" : "Disconnected";
+  document.getElementById("stateSub").textContent =
+    s.connected ? ("Exit IP · " + s.assignedIP) : "";
+  document.getElementById("err").textContent = s.error || "";
+
+  const btn = document.getElementById("connectBtn");
+  const active = s.connected || s.connecting;
+  btn.textContent = active ? "Disconnect" : "Connect";
+  btn.classList.toggle("on", s.connected);
+  btn.disabled = s.servers.length === 0;
+
+  document.getElementById("proxyHint").textContent = (mode === "proxy")
+    ? ("Proxy mode: set your system/browser proxy to SOCKS5 " + s.socks + " or HTTP " + s.http + ".")
+    : "TUN mode routes all traffic system-wide (run as Administrator).";
+
+  const list = document.getElementById("serverList");
+  list.innerHTML = "";
+  if (s.servers.length === 0) {
+    list.innerHTML = '<div class="hint">No servers yet — paste a arnos:// URI below.</div>';
+  }
+  for (const srv of s.servers) {
+    const el = document.createElement("div");
+    el.className = "srv" + (srv.active ? " active" : "");
+    el.innerHTML = `<span class="dot"></span>
+      <div><div class="name">${srv.name}</div><div class="host">${srv.host}:${srv.port}</div></div>
+      <div class="grow"></div><button class="x" title="Remove">✕</button>`;
+    el.addEventListener("click", (e) => {
+      if (e.target.classList.contains("x")) return;
+      api("/api/active", { method: "POST", body: JSON.stringify({ name: srv.name }) }).then(refresh);
+    });
+    el.querySelector(".x").addEventListener("click", () => {
+      api("/api/remove", { method: "POST", body: JSON.stringify({ name: srv.name }) }).then(refresh);
+    });
+    list.appendChild(el);
+  }
+}
+
+async function refresh() {
+  try { render(await api("/api/state")); } catch (e) {}
+}
+
+document.getElementById("connectBtn").addEventListener("click", async () => {
+  const s = await api("/api/state");
+  try {
+    if (s.connected || s.connecting) await api("/api/disconnect", { method: "POST" });
+    else await api("/api/connect", { method: "POST", body: JSON.stringify({ mode }) });
+  } catch (e) { document.getElementById("err").textContent = e.message; }
+  refresh();
+});
+
+document.getElementById("addBtn").addEventListener("click", async () => {
+  const input = document.getElementById("uriInput");
+  if (!input.value.trim()) return;
+  try { await api("/api/add", { method: "POST", body: JSON.stringify({ uri: input.value.trim() }) }); input.value = ""; }
+  catch (e) { document.getElementById("err").textContent = e.message; }
+  refresh();
+});
+
+document.querySelectorAll("#modeSeg button").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("#modeSeg button").forEach((x) => x.classList.remove("sel"));
+    b.classList.add("sel"); mode = b.dataset.mode; refresh();
+  });
+});
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
