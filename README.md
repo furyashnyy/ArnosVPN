@@ -150,6 +150,18 @@ in front of the domain (common on `cdn.*` hosts behind Cloudflare):
   origin. Cloudflare proxying does support WebSockets, but its bot rules can 403
   a non-browser client.
 
+Diagnose *where* the block is: ArnosVPN logs one line per request and serves an
+unauthenticated health endpoint. From your machine:
+
+```bash
+curl -sSI https://<your-domain>/healthz    # expect: HTTP/2 200, body "ok"
+```
+
+If that 403s too, the proxy/CDN is blocking everything before ArnosVPN. If it
+returns 200 but the tunnel still 403s, check the container logs — every request
+is logged (`request GET / ws=true ...`); no line means the upgrade never
+reached ArnosVPN.
+
 **`404`** — the domain isn't routing to ArnosVPN. On Coolify, attach the domain
 to the service and set *Ports Exposes* to the internal port (`8443`).
 
