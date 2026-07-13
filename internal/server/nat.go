@@ -56,8 +56,12 @@ func (n *netConfig) apply() error {
 		return err
 	}
 
-	// 2. Enable IPv4 forwarding.
-	if err := writeSysctl("/proc/sys/net/ipv4/ip_forward", "1"); err != nil {
+	// 2. Enable IPv4 forwarding. In many container runtimes (Coolify/Docker)
+	//    /proc/sys is mounted read-only from inside the container even though
+	//    the value is already set to 1 via the compose `sysctls:` block or by
+	//    the host. So only write when it isn't already enabled, and don't treat
+	//    a failed write as fatal if forwarding turns out to be on anyway.
+	if err := ensureIPForward(); err != nil {
 		return err
 	}
 
@@ -138,11 +142,35 @@ func run(name string, args ...string) error {
 	return nil
 }
 
-func writeSysctl(path, value string) error {
-	if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+const ipForwardPath = "/proc/sys/net/ipv4/ip_forward"
+
+// ensureIPForward makes sure IPv4 forwarding is on. It is deliberately
+// forgiving: if forwarding is already enabled (typically because the compose
+// `sysctls:` block or the host set it) it does nothing, and it only errors when
+// forwarding is genuinely off and cannot be turned on — with a message that
+// tells the operator exactly how to fix it.
+func ensureIPForward() error {
+	if ipForwardEnabled() {
+		return nil
 	}
-	return nil
+	// Try to enable it ourselves; ignore the write error and re-check, since a
+	// read-only /proc still reports the effective value correctly.
+	_ = os.WriteFile(ipForwardPath, []byte("1"), 0o644)
+	if ipForwardEnabled() {
+		return nil
+	}
+	return fmt.Errorf("IPv4 forwarding is disabled and %s is not writable; "+
+		"enable it on the host or via the container sysctls "+
+		"(docker: --sysctl net.ipv4.ip_forward=1; compose: sysctls: [net.ipv4.ip_forward=1])",
+		ipForwardPath)
+}
+
+func ipForwardEnabled() bool {
+	data, err := os.ReadFile(ipForwardPath)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == "1"
 }
 
 // defaultRouteInterface parses /proc/net/route for the interface owning the
