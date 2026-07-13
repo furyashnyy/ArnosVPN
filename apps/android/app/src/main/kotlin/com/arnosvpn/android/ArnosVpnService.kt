@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.arnosvpn.android.protocol.Crypto
+import com.arnosvpn.android.protocol.Fingerprint
 import com.arnosvpn.android.protocol.Profile
 import com.arnosvpn.android.protocol.Session
 import okhttp3.OkHttpClient
