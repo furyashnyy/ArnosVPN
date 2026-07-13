@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ArnosVPN</string>
+    <string name="tagline">Secure encrypted tunnel</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected">Connected</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="paste_uri">Paste URI</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="profile_none">No profile — scan a QR or paste a URI</string>
+</resources>

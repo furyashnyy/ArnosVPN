@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="arnos_primary">#3B5BFF</color>
+    <color name="arnos_on_primary">#FFFFFF</color>
+
+    <!-- Status indicator colors -->
+    <color name="status_idle">#94A3B8</color>
+    <color name="status_connecting">#F59E0B</color>
+    <color name="status_connected">#22C55E</color>
+    <color name="status_error">#EF4444</color>
+
+    <color name="ic_launcher_background">#0E2A5E</color>
+</resources>

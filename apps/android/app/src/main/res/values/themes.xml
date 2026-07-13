@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ArnosVPN" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/arnos_primary</item>
+        <item name="colorOnPrimary">@color/arnos_on_primary</item>
+    </style>
+</resources>

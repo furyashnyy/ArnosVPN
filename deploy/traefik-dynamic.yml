@@ -1,0 +1,27 @@
+# Traefik dynamic configuration for ArnosVPN using TLS passthrough.
+#
+# Use this when you run Traefik yourself (file provider) rather than via Coolify
+# labels. It routes raw TLS by SNI to ArnosVPN, which presents the certificate it
+# reads from Traefik's acme.json — so the ArnosVPN certificate stays end-to-end
+# and the connection is indistinguishable from any other HTTPS site.
+#
+# Point Traefik at this file, e.g.:
+#   providers:
+#     file:
+#       filename: /etc/traefik/dynamic/arnosvpn.yml
+
+tcp:
+  routers:
+    arnosvpn:
+      entryPoints:
+        - websecure          # your :443 entrypoint
+      rule: "HostSNI(`vpn.example.com`)"
+      service: arnosvpn
+      tls:
+        passthrough: true    # do not terminate; forward raw TLS to ArnosVPN
+
+  services:
+    arnosvpn:
+      loadBalancer:
+        servers:
+          - address: "arnosvpn:443"   # container/host running ArnosVPN

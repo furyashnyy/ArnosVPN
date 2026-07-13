@@ -1,0 +1,24 @@
+# Go
+/bin/
+*.test
+*.out
+
+# Local server state / secrets
+arnos-state.json
+/data/
+*.png
+
+# Android / Gradle transient build outputs
+apps/android/.gradle/
+apps/android/app/build/
+apps/android/local.properties
+apps/android/.idea/
+apps/android/captures/
+**/*.iml
+
+# NOTE: apps/android/build/ is intentionally NOT ignored — the CI-built
+# release APK is published there.
+
+# Editors / OS
+.DS_Store
+.vscode/
