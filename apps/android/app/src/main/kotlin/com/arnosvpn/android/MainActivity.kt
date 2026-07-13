@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -140,16 +141,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render(state: String?, detail: String?) {
-        binding.statusText.text = when (state) {
-            ArnosVpnService.STATE_CONNECTING -> "Connecting…"
-            ArnosVpnService.STATE_CONNECTED -> "Connected · ${detail ?: ""}"
-            ArnosVpnService.STATE_ERROR -> "Error: ${detail ?: "unknown"}"
-            else -> "Disconnected"
+        val (label, colorRes) = when (state) {
+            ArnosVpnService.STATE_CONNECTING -> getString(R.string.connecting) to R.color.status_connecting
+            ArnosVpnService.STATE_CONNECTED -> getString(R.string.connected) to R.color.status_connected
+            ArnosVpnService.STATE_ERROR -> "Error" to R.color.status_error
+            else -> getString(R.string.status_disconnected) to R.color.status_idle
         }
-        val connected = state == ArnosVpnService.STATE_CONNECTED || state == ArnosVpnService.STATE_CONNECTING
-        binding.connectButton.text = if (connected) "Disconnect" else "Connect"
+        binding.statusText.text = label
+
+        val tint = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
+        binding.statusCircle.backgroundTintList = tint
+        binding.statusGlow.backgroundTintList = tint
+
+        when (state) {
+            ArnosVpnService.STATE_CONNECTED -> binding.profileText.text =
+                detail?.takeIf { it.isNotBlank() }?.let { "Exit IP · $it" } ?: getString(R.string.connected)
+            ArnosVpnService.STATE_ERROR -> binding.profileText.text = detail ?: "unknown error"
+            ArnosVpnService.STATE_CONNECTING -> binding.profileText.text = detail ?: ""
+            else -> renderProfile() // restore the profile line when idle
+        }
+
+        val active = state == ArnosVpnService.STATE_CONNECTED || state == ArnosVpnService.STATE_CONNECTING
+        binding.connectButton.text = getString(if (active) R.string.disconnect else R.string.connect)
+        val btnColor = if (state == ArnosVpnService.STATE_CONNECTED) R.color.status_connected else R.color.arnos_primary
+        binding.connectButton.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, btnColor))
         binding.connectButton.setOnClickListener {
-            if (connected) {
+            if (active) {
                 startService(Intent(this, ArnosVpnService::class.java).setAction(ArnosVpnService.ACTION_DISCONNECT))
             } else {
                 onConnectClicked()

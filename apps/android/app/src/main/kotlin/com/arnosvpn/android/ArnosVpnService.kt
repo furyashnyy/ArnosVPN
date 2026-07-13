@@ -99,10 +99,25 @@ class ArnosVpnService : VpnService() {
             .retryOnConnectionFailure(true)
             .build()
 
+        // Present a full browser-like header set. Many CDNs/WAFs (Cloudflare in
+        // particular, common on `cdn.*` hosts) answer a bare WebSocket upgrade
+        // with 403 Forbidden; a real Origin + Chrome fingerprint makes the
+        // handshake indistinguishable from a browser and gets the 101 upgrade.
         val request = Request.Builder()
             .url(profile.wsUrl())
-            .header("Host", profile.sni)
-            .header("User-Agent", "Mozilla/5.0")
+            .header("Origin", "https://${profile.host}")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            )
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Accept-Encoding", "gzip, deflate, br")
+            .header("Cache-Control", "no-cache")
+            .header("Pragma", "no-cache")
+            .header("Sec-Fetch-Dest", "websocket")
+            .header("Sec-Fetch-Mode", "websocket")
+            .header("Sec-Fetch-Site", "same-origin")
             .build()
 
         webSocket = httpClient!!.newWebSocket(request, object : WebSocketListener() {
@@ -126,8 +141,15 @@ class ArnosVpnService : VpnService() {
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "tunnel failure", t)
-                stopTunnel(STATE_ERROR, t.message ?: "connection failed")
+                Log.e(TAG, "tunnel failure (http=${response?.code})", t)
+                val detail = when (response?.code) {
+                    403 -> "403 blocked upstream — if the domain is on Cloudflare, " +
+                        "turn off Bot Fight Mode or use a DNS-only (grey-cloud) record"
+                    404 -> "404 — check the domain routes to ArnosVPN (Coolify expose)"
+                    502, 503, 504 -> "${response.code} — ArnosVPN backend is not reachable behind the proxy"
+                    else -> t.message ?: "connection failed"
+                }
+                stopTunnel(STATE_ERROR, detail)
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {

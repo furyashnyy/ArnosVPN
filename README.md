@@ -136,6 +136,31 @@ The release APK is published at
 directory's README for why it is built in CI rather than committed by hand, and
 how to build it locally.
 
+## Troubleshooting
+
+**`Expected HTTP 101 response but was '403 Forbidden'`** — the WebSocket
+upgrade is being blocked *before* it reaches ArnosVPN, almost always by a CDN/WAF
+in front of the domain (common on `cdn.*` hosts behind Cloudflare):
+
+- The client already sends a full browser-like header set (`Origin`, a Chrome
+  `User-Agent`, `Sec-Fetch-*`), which clears most WAFs.
+- If it persists on **Cloudflare**: turn off *Bot Fight Mode* (Security → Bots)
+  for the domain, or add a WAF skip rule for the VPN path, or use a **DNS-only
+  (grey-cloud)** record for the VPN subdomain so traffic goes straight to your
+  origin. Cloudflare proxying does support WebSockets, but its bot rules can 403
+  a non-browser client.
+
+**`404`** — the domain isn't routing to ArnosVPN. On Coolify, attach the domain
+to the service and set *Ports Exposes* to the internal port (`8443`).
+
+**`502/503/504`** — the ArnosVPN container isn't reachable behind the proxy
+(not running, wrong exposed port, or failed health check).
+
+**Server crash-loops on `/proc/sys/net/ipv4/ip_forward: read-only file system`**
+— enable forwarding via the container sysctl (`--sysctl net.ipv4.ip_forward=1`,
+already in `docker-compose.yml`) or on the host. Recent builds detect an
+already-enabled value and don't fail.
+
 ## Development
 
 ```bash
