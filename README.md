@@ -29,8 +29,10 @@ everything, and reuses the TLS certificate your reverse proxy already manages.
 
 ```
 cmd/arnosvpn-server/     server entrypoint (self-configuring)
+cmd/arnosvpn-client/     desktop client (Windows/Linux): TUN + local proxy
 cmd/arnosvpnctl/         operator CLI: connect URI, QR, PSK, config dump
-internal/protocol/      wire protocol: auth, HKDF, ChaCha20-Poly1305 framing
+internal/protocol/      wire protocol: auth, HKDF, padded ChaCha20-Poly1305
+internal/client/        desktop tunnel, fingerprint, multi-server, SOCKS/HTTP
 internal/server/        TUN device, NAT, IP pool, WebSocket tunnel
 internal/cert/          TLS providers: traefik (default) + letsencrypt
 internal/config/        env-driven config with self-generated PSK
@@ -131,10 +133,34 @@ Then tap **Connect**. The app builds the TUN interface from the server's
 `welcome`, routes all traffic through the tunnel, and encrypts every packet with
 the same protocol as the server.
 
-The release APK is published at
-[`apps/android/build/arnosvpn-release.apk`](apps/android/build/) by CI. See that
-directory's README for why it is built in CI rather than committed by hand, and
-how to build it locally.
+The app manages **multiple servers** (tap **Servers** to view, switch, or
+remove) and provisions each by QR/URI. The release APK is published at
+[`apps/android/build/arnosvpn-release.apk`](apps/android/build/) by CI.
+
+## Desktop client (Windows / Linux)
+
+`cmd/arnosvpn-client` is a cross-platform desktop client. It manages multiple
+servers and connects in one of two modes:
+
+| Mode | Flag | What it does |
+|------|------|--------------|
+| **Proxy** (default) | `--mode proxy` | Runs the tunnel in userspace and exposes a local **SOCKS5** (`127.0.0.1:1080`) and **HTTP** (`127.0.0.1:8080`) proxy. No admin rights, no drivers — point your system/browser proxy at it. |
+| **TUN** | `--mode tun` | Creates a system-wide TUN adapter (wintun on Windows) and routes **all** traffic through the server. Requires Administrator/root. |
+
+```bash
+arnosvpn-client add "arnos://connect?host=…&psk=…" home   # save a server
+arnosvpn-client list                                       # view your servers
+arnosvpn-client use home                                   # pick the active one
+arnosvpn-client connect                 # proxy mode on 127.0.0.1:1080 / :8080
+arnosvpn-client connect --mode tun      # system-wide (admin/root)
+```
+
+Every connection uses a fresh fingerprint (random path, rotating User-Agent,
+random per-frame padding), so no two sessions look alike on the wire.
+
+Binaries for `windows/amd64` and `linux/amd64` are built by the `desktop` CI
+workflow. TUN mode on Windows needs `wintun.dll` next to the exe (bundled in the
+Windows artifact); proxy mode needs nothing extra.
 
 ## Troubleshooting
 

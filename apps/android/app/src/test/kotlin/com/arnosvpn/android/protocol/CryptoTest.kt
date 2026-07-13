@@ -16,7 +16,7 @@ import org.junit.Test
 class CryptoTest {
 
     private val authB64 = "XcfGTzUpsovj7VPGo5bqQcC05d9BTevquB8kEtkiZQI="
-    private val frameHex = "0000000000000000b1e173b0ae947e1dfe8535f1ba3e4708f268cd06661a266cf495e88ef6890555a6a22ccc04"
+    private val frameHex = "0000000000000000d0867cadb3d67b40e6d82fb9bd2f190aba7ddc0a602a72c0ec9f6466003b20b0ae090cb6cd4ca9ef939073be"
 
     private val psk = ByteArray(32) { it.toByte() }
     private val clientSalt = ByteArray(16) { (0xa0 + it).toByte() }
@@ -32,7 +32,8 @@ class CryptoTest {
     @Test
     fun sealedFrameMatchesServer() {
         val session = Crypto.deriveSession(psk, clientSalt, serverSalt)
-        val frame = session.seal(plaintext, 0, plaintext.size) // first packet, counter 0
+        // Deterministic pad (5 zero bytes) so the vector is stable; real seal pads randomly.
+        val frame = session.sealRaw(plaintext, 0, plaintext.size, ByteArray(5))
         assertEquals(frameHex, frame.toHex())
     }
 
@@ -68,7 +69,9 @@ private class ServerSideSession(psk: ByteArray, clientSalt: ByteArray, serverSal
         for (i in 0 until 8) nonce[11 - i] = (ctr ushr (8 * i)).toByte()
         val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE, recv, javax.crypto.spec.IvParameterSpec(nonce))
-        return cipher.doFinal(frame, 8, frame.size - 8)
+        val pt = cipher.doFinal(frame, 8, frame.size - 8)
+        val realLen = ((pt[0].toInt() and 0xff) shl 8) or (pt[1].toInt() and 0xff)
+        return pt.copyOfRange(2, 2 + realLen)
     }
 
     private fun hmac(key: ByteArray, vararg parts: ByteArray): ByteArray {

@@ -19,6 +19,7 @@ object Crypto {
     const val PSK_LEN = 32
     const val SALT_LEN = 16
     const val KEY_LEN = 32
+    const val MAX_PAD = 256 // upper bound on random per-frame padding (v2)
     private const val AUTH_INFO = "arnos-auth-v1"
     private const val C2S_INFO = "arnos-c2s-v1"
     private const val S2C_INFO = "arnos-s2c-v1"
@@ -80,28 +81,49 @@ object Crypto {
  */
 class Session(private val sendKey: ByteArray, private val recvKey: ByteArray) {
     private val sendCtr = AtomicLong(0)
+    private val rng = java.security.SecureRandom()
 
-    /** seal encrypts one IP packet into a wire frame: counter(8) || ct || tag. */
+    /**
+     * seal encrypts one IP packet into a wire frame with random padding:
+     * frame = counter(8) || AEAD( realLen(2) || packet || pad ). The random pad
+     * makes the on-wire size never repeat (protocol v2 fingerprint).
+     */
     fun seal(plaintext: ByteArray, offset: Int, length: Int): ByteArray {
+        val pad = ByteArray(rng.nextInt(Crypto.MAX_PAD + 1))
+        if (pad.isNotEmpty()) rng.nextBytes(pad)
+        return sealRaw(plaintext, offset, length, pad)
+    }
+
+    /** sealRaw is the deterministic core of seal (given fixed pad). */
+    fun sealRaw(plaintext: ByteArray, offset: Int, length: Int, pad: ByteArray): ByteArray {
         val ctr = sendCtr.getAndIncrement()
         val nonce = nonceFor(ctr)
+        val pt = ByteArray(2 + length + pad.size)
+        pt[0] = (length ushr 8).toByte()
+        pt[1] = length.toByte()
+        System.arraycopy(plaintext, offset, pt, 2, length)
+        System.arraycopy(pad, 0, pt, 2 + length, pad.size)
         val cipher = Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(sendKey, "ChaCha20"), IvParameterSpec(nonce))
-        val ct = cipher.doFinal(plaintext, offset, length)
+        val ct = cipher.doFinal(pt)
         val out = ByteArray(8 + ct.size)
         writeCounter(out, ctr)
         System.arraycopy(ct, 0, out, 8, ct.size)
         return out
     }
 
-    /** open decrypts a frame produced by the server's Seal. */
+    /** open decrypts a frame produced by the server's Seal and strips padding. */
     fun open(frame: ByteArray): ByteArray {
         require(frame.size >= 8) { "short frame" }
         val ctr = readCounter(frame)
         val nonce = nonceFor(ctr)
         val cipher = Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(recvKey, "ChaCha20"), IvParameterSpec(nonce))
-        return cipher.doFinal(frame, 8, frame.size - 8)
+        val pt = cipher.doFinal(frame, 8, frame.size - 8)
+        require(pt.size >= 2) { "short plaintext" }
+        val realLen = ((pt[0].toInt() and 0xff) shl 8) or (pt[1].toInt() and 0xff)
+        require(realLen <= pt.size - 2) { "bad length prefix" }
+        return pt.copyOfRange(2, 2 + realLen)
     }
 
     private fun nonceFor(ctr: Long): ByteArray {

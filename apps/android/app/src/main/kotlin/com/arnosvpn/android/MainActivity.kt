@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
             scan.launch(ScanOptions().setBeepEnabled(false).setPrompt("Scan the ArnosVPN QR"))
         }
         binding.pasteButton.setOnClickListener { promptPaste() }
+        binding.serversButton.setOnClickListener { showServers() }
         binding.connectButton.setOnClickListener { onConnectClicked() }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -93,12 +94,50 @@ class MainActivity : AppCompatActivity() {
 
     private fun onProfileUri(uri: String) {
         try {
-            store.save(uri)
-            toast("Profile saved")
+            val entry = store.add(uri)
+            store.setActive(entry.name)
+            toast("Server \"${entry.name}\" saved")
             renderProfile()
         } catch (e: Exception) {
             toast("Invalid profile: ${e.message}")
         }
+    }
+
+    /** showServers lists saved servers so the user can view, switch, or remove. */
+    private fun showServers() {
+        val servers = store.servers()
+        if (servers.isEmpty()) {
+            toast("No servers yet — scan a QR or paste a URI")
+            return
+        }
+        val active = store.activeName()
+        val labels = servers.map { s ->
+            val host = s.profileOrNull()?.let { "${it.host}:${it.port}" } ?: "?"
+            (if (s.name == active) "● " else "○ ") + "${s.name}  ·  $host"
+        }.toTypedArray()
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Your servers")
+            .setItems(labels) { _, i ->
+                store.setActive(servers[i].name)
+                toast("Active: ${servers[i].name}")
+                renderProfile()
+            }
+            .setNeutralButton("Remove…") { _, _ -> showRemoveServer(servers.map { it.name }) }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showRemoveServer(names: List<String>) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Remove a server")
+            .setItems(names.toTypedArray()) { _, i ->
+                store.remove(names[i])
+                toast("Removed ${names[i]}")
+                renderProfile()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun promptPaste() {
@@ -132,12 +171,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderProfile() {
         val profile = store.load()
+        val count = store.servers().size
         binding.profileText.text = if (profile != null) {
-            "${profile.name.ifEmpty { "server" }} · ${profile.host}:${profile.port}"
+            val suffix = if (count > 1) "  (+${count - 1} more)" else ""
+            "${profile.name.ifEmpty { "server" }} · ${profile.host}:${profile.port}$suffix"
         } else {
             "No profile — scan a QR or paste a URI"
         }
         binding.connectButton.isEnabled = profile != null
+        binding.serversButton.isEnabled = count > 0
     }
 
     private fun render(state: String?, detail: String?) {

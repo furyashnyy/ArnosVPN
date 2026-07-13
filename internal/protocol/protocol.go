@@ -23,8 +23,10 @@
 package protocol
 
 const (
-	// Version is the protocol version negotiated in the hello frame.
-	Version = 1
+	// Version is the protocol version negotiated in the hello frame. v2 adds
+	// per-frame random padding (length-prefixed payload) for a non-repeating
+	// on-wire size fingerprint.
+	Version = 2
 
 	// DefaultTunnelCIDR is the address pool handed out to clients.
 	DefaultTunnelCIDR = "10.66.0.0/24"

@@ -1,0 +1,60 @@
+name: desktop
+
+# Cross-builds the ArnosVPN desktop client (Windows + Linux) and publishes the
+# binaries as workflow artifacts.
+
+on:
+  push:
+    paths:
+      - 'cmd/arnosvpn-client/**'
+      - 'internal/client/**'
+      - 'internal/protocol/**'
+      - 'internal/provision/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: linux
+            goarch: amd64
+            ext: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build client
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          out="dist/arnosvpn-client-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/arnosvpn-client
+          ls -l "$out"
+
+      - name: Bundle wintun.dll (Windows, for TUN mode)
+        if: matrix.goos == 'windows'
+        run: |
+          curl -fsSL https://www.wireguard.com/download/wintun/wintun-0.14.1.zip -o wintun.zip
+          unzip -o wintun.zip -d wintun >/dev/null
+          cp wintun/wintun/bin/amd64/wintun.dll dist/wintun.dll
+          ls -l dist/wintun.dll
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arnosvpn-client-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*

@@ -66,24 +66,37 @@ The client encrypts with `Kc2s` and decrypts with `Ks2c`; the server does the
 reverse. Distinct keys per direction mean the two counters never share a
 keystream.
 
-## Data frames
+## Data frames (v2)
 
-Each tunnelled IP packet is one WebSocket **binary** frame:
+Each tunnelled IP packet is one WebSocket **binary** frame. The plaintext is
+length-prefixed and **randomly padded** before encryption, so the on-wire frame
+size never repeats — defeating length-based traffic fingerprinting:
 
 ```
-+-----------------------------+------------------------------+
-| counter (8 bytes, BE)       | ChaCha20-Poly1305( packet )  |
-+-----------------------------+------------------------------+
+plaintext = realLen(2, BE) || packet || random_pad(0..256)
+frame     = counter(8, BE) || ChaCha20-Poly1305( plaintext )
 ```
 
 - The nonce is `4 zero bytes || counter(8, big-endian)`.
 - `counter` increments per packet, per direction, starting at 0.
 - The AEAD output is `ciphertext || 16-byte tag` (no additional data).
-- The 8-byte prefix lets the peer reconstruct the nonce without assuming
-  in-order delivery.
+- On decrypt, the peer reads `realLen` and takes exactly that many bytes as the
+  packet, discarding the pad.
 
 The server drops any decrypted packet whose IPv4 source address is not the
 address it assigned that client (anti-spoofing).
+
+## Connection fingerprint
+
+Every connection is shaped to look like a unique, ordinary browser session:
+
+- a **random request path** (the server accepts the upgrade on any path),
+- a **rotating browser `User-Agent`** and browser-like headers (`Origin`,
+  `Sec-Fetch-*`), and
+- the **random per-frame padding** above.
+
+No two connections share a size/shape fingerprint, and each is
+indistinguishable from HTTPS traffic to a normal web app.
 
 ## Keepalive
 

@@ -22,6 +22,12 @@ data class Profile(
         return "wss://$host:$port$p"
     }
 
+    /** wsUrl with an explicit (e.g. randomized) path for fingerprint variety. */
+    fun wsUrl(overridePath: String): String {
+        val p = if (overridePath.startsWith("/")) overridePath else "/$overridePath"
+        return "wss://$host:$port$p"
+    }
+
     companion object {
         const val SCHEME = "arnos"
 

@@ -8,6 +8,7 @@
     <string name="connected">Connected</string>
     <string name="scan_qr">Scan QR</string>
     <string name="paste_uri">Paste URI</string>
+    <string name="servers">Servers</string>
     <string name="status_disconnected">Disconnected</string>
     <string name="profile_none">No profile — scan a QR or paste a URI</string>
 </resources>

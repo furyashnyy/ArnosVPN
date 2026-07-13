@@ -11,7 +11,7 @@ import (
 // interoperate. If you change the crypto, regenerate both.
 const (
 	vecAuthB64  = "XcfGTzUpsovj7VPGo5bqQcC05d9BTevquB8kEtkiZQI="
-	vecFrameHex = "0000000000000000b1e173b0ae947e1dfe8535f1ba3e4708f268cd06661a266cf495e88ef6890555a6a22ccc04"
+	vecFrameHex = "0000000000000000d0867cadb3d67b40e6d82fb9bd2f190aba7ddc0a602a72c0ec9f6466003b20b0ae090cb6cd4ca9ef939073be"
 )
 
 func vecInputs() (psk, cs, ss []byte, ts int64, pt []byte) {
@@ -43,7 +43,9 @@ func TestVectorFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame := cli.Seal(pt) // first packet, counter 0
+	// Deterministic pad (5 zero bytes) so the vector is stable; the real Seal
+	// uses random padding for the fingerprint.
+	frame := cli.sealRaw(pt, make([]byte, 5)) // first packet, counter 0
 	if got := hex.EncodeToString(frame); got != vecFrameHex {
 		t.Fatalf("frame vector drift:\n got %s\nwant %s", got, vecFrameHex)
 	}

@@ -86,7 +86,7 @@ class ArnosVpnService : VpnService() {
 
         val hello = JSONObject()
             .put("type", "hello")
-            .put("v", 1)
+            .put("v", 2)
             .put("salt", Crypto.b64(clientSalt))
             .put("ts", ts)
             .put("auth", Crypto.computeAuth(profile.psk, clientSalt, ts))
@@ -104,13 +104,9 @@ class ArnosVpnService : VpnService() {
         // with 403 Forbidden; a real Origin + Chrome fingerprint makes the
         // handshake indistinguishable from a browser and gets the 101 upgrade.
         val request = Request.Builder()
-            .url(profile.wsUrl())
+            .url(profile.wsUrl(Fingerprint.randomPath()))
             .header("Origin", "https://${profile.host}")
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            )
+            .header("User-Agent", Fingerprint.randomUserAgent())
             .header("Accept-Language", "en-US,en;q=0.9")
             .header("Accept-Encoding", "gzip, deflate, br")
             .header("Cache-Control", "no-cache")
