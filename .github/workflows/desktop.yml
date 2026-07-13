@@ -19,6 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: windows
@@ -45,13 +46,23 @@ jobs:
           go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/arnosvpn-client
           ls -l "$out"
 
-      - name: Bundle wintun.dll (Windows, for TUN mode)
+      - name: Bundle wintun.dll (Windows, for TUN mode; best effort)
         if: matrix.goos == 'windows'
+        continue-on-error: true
         run: |
-          curl -fsSL https://www.wireguard.com/download/wintun/wintun-0.14.1.zip -o wintun.zip
-          unzip -o wintun.zip -d wintun >/dev/null
-          cp wintun/wintun/bin/amd64/wintun.dll dist/wintun.dll
-          ls -l dist/wintun.dll
+          set +e
+          for url in \
+            "https://www.wireguard.com/download/wintun/wintun-0.14.1.zip" \
+            "https://download.wireguard.com/wintun/wintun-0.14.1.zip"; do
+            if curl -fsSL "$url" -o wintun.zip; then break; fi
+          done
+          if [ -s wintun.zip ] && unzip -o wintun.zip -d wintun >/dev/null 2>&1; then
+            cp wintun/wintun/bin/amd64/wintun.dll dist/wintun.dll && ls -l dist/wintun.dll
+          else
+            echo "wintun.dll download unavailable — proxy mode needs no DLL; for TUN mode"
+            echo "get wintun.dll from https://www.wireguard.com/install/ and place it next to the exe" \
+              > dist/WINTUN-README.txt
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
