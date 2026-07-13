@@ -1,0 +1,68 @@
+# ArnoVPN — Coolify + Traefik ready compose file.
+#
+# ArnoVPN terminates real TLS itself on :443 (that is what makes the traffic
+# look like ordinary HTTPS). Two ways to expose it behind Coolify's Traefik:
+#
+#   A) TLS passthrough (default, keeps ArnoVPN's own certificate on the wire).
+#      Traefik routes raw TCP by SNI to this container; ArnoVPN presents the
+#      certificate it reads from Traefik's acme.json. Uncomment the labels.
+#
+#   B) Standalone on a dedicated IP/port. Publish 443 directly (the `ports`
+#      block below) and point DNS at the host. Use CERT_PROVIDER=letsencrypt
+#      to have ArnoVPN obtain its own certificate.
+#
+# See deploy/coolify.md for step-by-step Coolify instructions.
+
+services:
+  arnovpn:
+    build: .
+    image: arnovpn:latest
+    restart: unless-stopped
+
+    # Required to create the TUN device and program NAT.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+
+    environment:
+      # Domain clients connect to (must match the certificate).
+      ARNO_DOMAIN: ${ARNO_DOMAIN:?set ARNO_DOMAIN}
+      # Certificate source: "traefik" (default) reuses Coolify/Traefik certs;
+      # "letsencrypt" makes ArnoVPN obtain its own.
+      CERT_PROVIDER: ${CERT_PROVIDER:-traefik}
+      # Where Traefik stores certificates (mounted read-only below). Coolify's
+      # bundled proxy typically writes /data/coolify/proxy/acme.json.
+      ARNO_TRAEFIK_ACME: /traefik/acme.json
+      # Used only when CERT_PROVIDER=letsencrypt.
+      ARNO_ACME_EMAIL: ${ARNO_ACME_EMAIL:-}
+      # Optional: pin a pre-shared key; otherwise one is generated into /data.
+      ARNO_PSK: ${ARNO_PSK:-}
+
+    volumes:
+      - arno-data:/data
+      # Mount Traefik's certificate store read-only for CERT_PROVIDER=traefik.
+      # Adjust the host path to your Coolify/Traefik acme.json location.
+      - ${TRAEFIK_ACME_PATH:-/data/coolify/proxy/acme.json}:/traefik/acme.json:ro
+
+    # --- Option B: publish 443 directly (standalone). ---
+    ports:
+      - "443:443"
+
+    # --- Option A: Traefik TLS passthrough (comment out `ports` above). ---
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.tcp.routers.arnovpn.rule=HostSNI(`${ARNO_DOMAIN}`)
+    #   - traefik.tcp.routers.arnovpn.entrypoints=websecure
+    #   - traefik.tcp.routers.arnovpn.tls.passthrough=true
+    #   - traefik.tcp.services.arnovpn.loadbalancer.server.port=443
+    # networks:
+    #   - coolify
+
+volumes:
+  arno-data:
+# networks:
+#   coolify:
+#     external: true
