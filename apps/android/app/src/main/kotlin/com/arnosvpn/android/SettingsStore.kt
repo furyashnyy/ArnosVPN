@@ -35,7 +35,7 @@ class SettingsStore(context: Context) {
     }
 
     private fun defaults(): JSONObject = JSONObject()
-        .put("theme", "system")
+        .put("theme", "light")
         .put("mode", "tun")
         .put("socks", "127.0.0.1:1080")
         .put("http", "127.0.0.1:8080")

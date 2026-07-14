@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ArnosVPN" parent="Theme.Material3.DayNight.NoActionBar">
+    <!-- The app UI is a light-themed WebView, so the app chrome is light too
+         (and stays light even when the device is in dark mode). -->
+    <style name="Theme.ArnosVPN" parent="Theme.Material3.Light.NoActionBar">
         <item name="colorPrimary">@color/arnos_primary</item>
         <item name="colorOnPrimary">@color/arnos_on_primary</item>
+        <item name="android:statusBarColor">#eef0f6</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#f6f7fb</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

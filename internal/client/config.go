@@ -39,7 +39,7 @@ type Settings struct {
 func DefaultSettings() *Settings {
 	return &Settings{
 		Mode: "proxy", Socks: "127.0.0.1:1080", Http: "127.0.0.1:8080",
-		DNS: "1.1.1.1,1.0.0.1", PreferredIP: "auto", Theme: "system", TunDNS: "1.1.1.1",
+		DNS: "1.1.1.1,1.0.0.1", PreferredIP: "auto", Theme: "light", TunDNS: "1.1.1.1",
 	}
 }
 

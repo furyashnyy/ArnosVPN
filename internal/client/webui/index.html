@@ -2,18 +2,18 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>ArnosVPN</title>
 <style>
   :root{
-    --bg:#0f1220; --bg2:#151a30; --panel:#1a1f36; --panel2:#10152b; --line:#28304f;
-    --text:#eef1f8; --muted:#8b93b0; --primary:#3b5bff; --primary2:#5b74ff;
-    --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
-  }
-  :root[data-theme="light"]{
     --bg:#eef0f6; --bg2:#f6f7fb; --panel:#ffffff; --panel2:#f2f4fa; --line:#e2e6f0;
     --text:#1a1f2e; --muted:#6b7590; --primary:#3b5bff; --primary2:#2e6be6;
     --green:#16a34a; --amber:#d97706; --red:#dc2626;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1220; --bg2:#151a30; --panel:#1a1f36; --panel2:#10152b; --line:#28304f;
+    --text:#eef1f8; --muted:#8b93b0; --primary:#3b5bff; --primary2:#5b74ff;
+    --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -134,7 +134,6 @@
   .logbox{background:#0a0d1a;border:1px solid var(--line);border-radius:14px;padding:14px 16px;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6;
     color:#c8d0ea;height:calc(100vh - 180px);overflow-y:auto;white-space:pre-wrap;word-break:break-word}
-  :root[data-theme="light"] .logbox{background:#0f1424;color:#c8d0ea}
 
   /* Modal */
   .overlay{position:fixed;inset:0;background:rgba(5,8,20,.55);backdrop-filter:blur(3px);
@@ -167,6 +166,35 @@
   @keyframes pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
   .mini{display:flex;gap:16px;color:var(--muted);font-size:12.5px}
   .mini b{color:var(--text)}
+
+  /* ---- Mobile / Android adaptation: sidebar becomes a bottom tab bar ---- */
+  @media (max-width:720px){
+    .app{flex-direction:column}
+    .sidebar{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;height:auto;
+      flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+      border-right:none;border-top:1px solid var(--line);z-index:50;
+      background:color-mix(in srgb,var(--bg2) 94%,transparent);backdrop-filter:blur(14px)}
+    .brand{display:none}
+    .sidebar .nav+.nav{display:none} /* hide the secondary "About" group */
+    .nav{flex-direction:row;gap:2px}
+    .nav a{flex:1;flex-direction:column;gap:3px;padding:7px 2px;border-radius:12px;
+      font-size:10px;font-weight:600;text-align:center;justify-content:center;white-space:nowrap}
+    .nav a svg{width:22px;height:22px}
+    .main{padding:calc(16px + env(safe-area-inset-top)) 16px calc(86px + env(safe-area-inset-bottom))}
+    .page-title{font-size:20px;margin-bottom:16px}
+    .srv-grid{display:flex;flex-direction:column;gap:16px}
+    .srv-grid>.card{order:-1} /* connection panel above the server list */
+    .conn{padding:22px 16px}
+    .power{width:132px;height:132px}
+    .power svg{width:50px;height:50px}
+    .tiles{grid-template-columns:1fr 1fr;gap:12px}
+    .tile .tv{font-size:22px}
+    .modal{border-radius:18px;padding:20px}
+    .logbox{height:calc(100vh - 220px)}
+    .toasts{bottom:calc(90px + env(safe-area-inset-bottom));width:92vw}
+    .sel-menu{max-height:52vh;overflow-y:auto}
+    .ctx{max-width:80vw}
+  }
 </style>
 </head>
 <body>
@@ -232,9 +260,12 @@ async function refreshState(){try{STATE=await api("/api/state");curMode=curMode|
 async function loadSettings(){try{SETTINGS=await api("/api/settings");curMode=SETTINGS.mode||"proxy";applyTheme(SETTINGS.theme);}catch(e){}}
 function saveSettings(){return api("/api/settings",{method:"POST",body:JSON.stringify(SETTINGS)});}
 function applyTheme(t){const root=document.documentElement;
-  if(t==="light")root.setAttribute("data-theme","light");
-  else if(t==="dark")root.setAttribute("data-theme","dark");
-  else root.removeAttribute("data-theme");}
+  // Light is the base theme (no attribute); dark is an override. "system"
+  // follows the OS preference, defaulting to light.
+  if(t==="dark")root.setAttribute("data-theme","dark");
+  else if(t==="light")root.removeAttribute("data-theme");
+  else{const dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if(dark)root.setAttribute("data-theme","dark");else root.removeAttribute("data-theme");}}
 
 // ---------- custom components ----------
 function toggle(on,onChange){const t=el("div","tg"+(on?" on":""));t.onclick=()=>{on=!on;t.classList.toggle("on",on);onChange(on);};return t;}
