@@ -41,8 +41,15 @@ func RunProxy(ctx context.Context, t *Tunnel, socksAddr, httpAddr string) error 
 		return fmt.Errorf("create netstack: %w", err)
 	}
 
+	// runCtx is cancelled the moment RunProxy returns (for any reason), so the
+	// SOCKS/HTTP accept loops close their listeners and free the ports —
+	// essential for a clean reconnect that rebinds them.
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
 	done := make(chan struct{})
-	go t.KeepAlive(20*time.Second, done)
+	go t.KeepAlive(15*time.Second, done)
+	defer close(done)
 
 	errc := make(chan error, 3)
 	go func() { errc <- pump(dev, t) }()
@@ -53,7 +60,7 @@ func RunProxy(ctx context.Context, t *Tunnel, socksAddr, httpAddr string) error 
 			return fmt.Errorf("listen socks %s: %w", socksAddr, err)
 		}
 		log.Printf("SOCKS5 proxy on %s -> %s", socksAddr, hostOf(t))
-		go func() { errc <- acceptLoop(ctx, ln, tnet, handleSOCKS) }()
+		go func() { errc <- acceptLoop(runCtx, ln, tnet, handleSOCKS) }()
 	}
 	if httpAddr != "" {
 		ln, err := net.Listen("tcp", httpAddr)
@@ -61,15 +68,13 @@ func RunProxy(ctx context.Context, t *Tunnel, socksAddr, httpAddr string) error 
 			return fmt.Errorf("listen http %s: %w", httpAddr, err)
 		}
 		log.Printf("HTTP proxy on %s -> %s", httpAddr, hostOf(t))
-		go func() { errc <- acceptLoop(ctx, ln, tnet, handleHTTPConnect) }()
+		go func() { errc <- acceptLoop(runCtx, ln, tnet, handleHTTPConnect) }()
 	}
 
 	select {
 	case <-ctx.Done():
-		close(done)
 		return nil
 	case err := <-errc:
-		close(done)
 		return err
 	}
 }

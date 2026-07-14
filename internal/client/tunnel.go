@@ -166,18 +166,24 @@ func (t *Tunnel) WritePacket(pkt []byte) error {
 	return nil
 }
 
-// KeepAlive periodically sends a ping so idle tunnels and NAT mappings survive.
-// Run it in its own goroutine; it returns when the tunnel closes.
+// KeepAlive periodically sends an application-level ping so idle tunnels and
+// NAT mappings survive. It sends a text data frame (not just a WebSocket control
+// ping) because many reverse proxies only reset their idle timers on data — the
+// common cause of a tunnel that silently drops after a few minutes. Run it in
+// its own goroutine; it returns when the tunnel closes.
 func (t *Tunnel) KeepAlive(interval time.Duration, done <-chan struct{}) {
 	tk := time.NewTicker(interval)
 	defer tk.Stop()
+	ping := []byte(`{"type":"ping"}`)
 	for {
 		select {
 		case <-done:
 			return
 		case <-tk.C:
 			t.writeMu.Lock()
-			err := t.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
+			_ = t.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			err := t.conn.WriteMessage(websocket.TextMessage, ping)
+			_ = t.conn.SetWriteDeadline(time.Time{})
 			t.writeMu.Unlock()
 			if err != nil {
 				return

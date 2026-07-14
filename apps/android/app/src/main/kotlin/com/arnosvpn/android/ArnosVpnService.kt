@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.arnosvpn.android.protocol.Crypto
@@ -28,9 +30,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * ArnosVpnService establishes the local TUN interface and bridges it to the
- * ArnosVPN server over a WSS tunnel. All routes point into the tunnel, so every
- * app's traffic exits from the server and the device's apparent public IP
- * becomes the server's.
+ * ArnosVPN server over a WSS tunnel. It stays connected: an application-level
+ * keepalive (data frames, which proxies count as activity) prevents idle
+ * timeouts, and any drop triggers an automatic reconnect with backoff. When the
+ * server re-assigns the same tunnel IP the TUN device is kept, so reconnects are
+ * seamless.
  */
 class ArnosVpnService : VpnService() {
 
@@ -49,196 +53,228 @@ class ArnosVpnService : VpnService() {
         private const val TAG = "ArnosVpn"
         private const val CHANNEL_ID = "arnosvpn"
         private const val NOTIFICATION_ID = 42
+
+        private const val KEEPALIVE_MS = 15_000L
+        private const val RECONNECT_MIN_MS = 2_000L
+        private const val RECONNECT_MAX_MS = 30_000L
     }
 
+    /** Link bundles the AEAD session with its socket so uplink never mixes a new
+     *  socket with an old session (which the server could not decrypt). */
+    private class Link(val session: Session, val ws: WebSocket)
+
     private val running = AtomicBoolean(false)
-    private var tun: ParcelFileDescriptor? = null
-    private var webSocket: WebSocket? = null
+    @Volatile private var userStopped = false
+
     private var httpClient: OkHttpClient? = null
+    private var profile: Profile? = null
+
+    @Volatile private var link: Link? = null
+    @Volatile private var connGen = 0
+    @Volatile private var reconnectDelay = RECONNECT_MIN_MS
+
+    private var tun: ParcelFileDescriptor? = null
+    @Volatile private var tunOut: FileOutputStream? = null
+    @Volatile private var currentIp: String? = null
+    @Volatile private var uplinkGen = 0
     private var uplink: Thread? = null
 
+    private lateinit var ctlThread: HandlerThread
+    private lateinit var ctl: Handler
+
+    override fun onCreate() {
+        super.onCreate()
+        ctlThread = HandlerThread("arnos-ctl").apply { start() }
+        ctl = Handler(ctlThread.looper)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_DISCONNECT -> {
-                stopTunnel(STATE_DISCONNECTED, null)
-                return START_NOT_STICKY
-            }
+        if (intent?.action == ACTION_DISCONNECT) {
+            stopTunnel(STATE_DISCONNECTED, null)
+            return START_NOT_STICKY
         }
 
-        val profile = ProfileStore(this).load()
-        if (profile == null) {
+        val p = ProfileStore(this).load()
+        if (p == null) {
             broadcast(STATE_ERROR, "No profile configured")
             stopSelf()
             return START_NOT_STICKY
         }
+        profile = p
 
-        if (running.getAndSet(true)) {
-            return START_STICKY // already up
-        }
-        startForeground(NOTIFICATION_ID, notification("Connecting…"))
-        broadcast(STATE_CONNECTING, profile.host)
-        connect(profile)
-        return START_STICKY
-    }
+        if (running.getAndSet(true)) return START_STICKY // already up
 
-    private fun connect(profile: Profile) {
-        val clientSalt = Crypto.randomBytes(Crypto.SALT_LEN)
-        val ts = System.currentTimeMillis() / 1000
-
-        val hello = JSONObject()
-            .put("type", "hello")
-            .put("v", 2)
-            .put("salt", Crypto.b64(clientSalt))
-            .put("ts", ts)
-            .put("auth", Crypto.computeAuth(profile.psk, clientSalt, ts))
-            .put("name", android.os.Build.MODEL ?: "android")
-            .toString()
-
+        userStopped = false
         httpClient = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build()
 
-        // Present a full browser-like header set. Many CDNs/WAFs (Cloudflare in
-        // particular, common on `cdn.*` hosts) answer a bare WebSocket upgrade
-        // with 403 Forbidden; a real Origin + Chrome fingerprint makes the
-        // handshake indistinguishable from a browser and gets the 101 upgrade.
+        startForeground(NOTIFICATION_ID, notification("Connecting…"))
+        broadcast(STATE_CONNECTING, p.host)
+        ctl.post { connectWebSocket() }
+        scheduleKeepAlive()
+        return START_STICKY
+    }
+
+    // --- connection ---------------------------------------------------------
+
+    private fun connectWebSocket() {
+        if (userStopped || !running.get()) return
+        val p = profile ?: return
+        val gen = ++connGen
+        val clientSalt = Crypto.randomBytes(Crypto.SALT_LEN)
+        val ts = System.currentTimeMillis() / 1000
+        val hello = JSONObject()
+            .put("type", "hello").put("v", 2)
+            .put("salt", Crypto.b64(clientSalt)).put("ts", ts)
+            .put("auth", Crypto.computeAuth(p.psk, clientSalt, ts))
+            .put("name", Build.MODEL ?: "android")
+            .toString()
+
+        // Browser-shaped upgrade so CDNs/WAFs return 101 rather than 403.
         val request = Request.Builder()
-            .url(profile.wsUrl(Fingerprint.randomPath()))
-            .header("Origin", "https://${profile.host}")
+            .url(p.wsUrl(Fingerprint.randomPath()))
+            .header("Origin", "https://${p.host}")
             .header("User-Agent", Fingerprint.randomUserAgent())
             .header("Accept-Language", "en-US,en;q=0.9")
             .header("Accept-Encoding", "gzip, deflate, br")
             .header("Cache-Control", "no-cache")
-            .header("Pragma", "no-cache")
             .header("Sec-Fetch-Dest", "websocket")
             .header("Sec-Fetch-Mode", "websocket")
             .header("Sec-Fetch-Site", "same-origin")
             .build()
 
-        webSocket = httpClient!!.newWebSocket(request, object : WebSocketListener() {
+        httpClient?.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
-                Log.i(TAG, "tunnel socket open, sending hello")
-                ws.send(hello)
+                if (gen == connGen) ws.send(hello)
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
-                handleControl(ws, profile, clientSalt, text)
+                if (gen == connGen) handleControl(ws, p, clientSalt, text)
             }
 
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                val s = session ?: return
+                val l = link ?: return
+                if (ws !== l.ws) return
                 try {
-                    val pkt = s.open(bytes.toByteArray())
-                    tunOut?.write(pkt)
+                    tunOut?.write(l.session.open(bytes.toByteArray()))
                 } catch (e: Exception) {
-                    Log.w(TAG, "downlink decrypt/write failed", e)
+                    Log.w(TAG, "downlink failed", e)
                 }
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "tunnel failure (http=${response?.code})", t)
-                val detail = when (response?.code) {
-                    403 -> "403 blocked upstream — if the domain is on Cloudflare, " +
-                        "turn off Bot Fight Mode or use a DNS-only (grey-cloud) record"
-                    404 -> "404 — check the domain routes to ArnosVPN (Coolify expose)"
-                    502, 503, 504 -> "${response.code} — ArnosVPN backend is not reachable behind the proxy"
-                    else -> t.message ?: "connection failed"
-                }
-                stopTunnel(STATE_ERROR, detail)
+                if (gen == connGen) scheduleReconnect("failure ${response?.code ?: ""}: ${t.message}")
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                stopTunnel(STATE_DISCONNECTED, reason)
+                if (gen == connGen) scheduleReconnect("closed: $reason")
             }
         })
     }
 
-    @Volatile private var session: Session? = null
-    @Volatile private var tunOut: FileOutputStream? = null
-
-    private fun handleControl(ws: WebSocket, profile: Profile, clientSalt: ByteArray, text: String) {
+    private fun handleControl(ws: WebSocket, p: Profile, clientSalt: ByteArray, text: String) {
         val obj = JSONObject(text)
         when (obj.optString("type")) {
             "welcome" -> {
                 val serverSalt = android.util.Base64.decode(obj.getString("salt"), android.util.Base64.NO_WRAP)
-                session = Crypto.deriveSession(profile.psk, clientSalt, serverSalt)
-                establishTun(obj)
+                val session = Crypto.deriveSession(p.psk, clientSalt, serverSalt)
+                if (!ensureTun(obj)) return
+                link = Link(session, ws) // atomic swap: uplink uses matching pair
+                reconnectDelay = RECONNECT_MIN_MS
+                updateNotification("Connected · ${currentIp}")
+                broadcast(STATE_CONNECTED, currentIp)
+                Log.i(TAG, "connected ip=${currentIp}")
             }
+            // A server "error" is terminal (bad auth/version) — do not loop.
             "error" -> stopTunnel(STATE_ERROR, obj.optString("msg", "rejected by server"))
-            "pong" -> {} // keepalive
+            "pong" -> {}
         }
     }
 
-    private fun establishTun(welcome: JSONObject) {
+    /** ensureTun builds the TUN device when needed. Kept across reconnects when
+     *  the assigned IP is unchanged, so the reconnect is seamless. */
+    private fun ensureTun(welcome: JSONObject): Boolean {
         val ip = welcome.getString("ip")
+        if (tun != null && ip == currentIp) return true // reuse existing device
+
         val mask = welcome.getInt("mask")
         val mtu = welcome.optInt("mtu", 1400)
         val dns = welcome.optJSONArray("dns")
-
-        val builder = Builder()
-            .setSession("ArnosVPN")
-            .setMtu(mtu)
-            .addAddress(ip, mask)
-            .addRoute("0.0.0.0", 0) // route all IPv4 through the tunnel
-        if (dns != null) {
-            for (i in 0 until dns.length()) builder.addDnsServer(dns.getString(i))
-        }
-        // Exclude ourselves so the tunnel carrier isn't tunnelled.
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (_: Exception) {
-        }
+        val builder = Builder().setSession("ArnosVPN").setMtu(mtu)
+            .addAddress(ip, mask).addRoute("0.0.0.0", 0)
+        if (dns != null) for (i in 0 until dns.length()) builder.addDnsServer(dns.getString(i))
+        try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
 
         val fd = builder.establish()
         if (fd == null) {
             stopTunnel(STATE_ERROR, "VPN permission not granted")
-            return
+            return false
         }
+        try { tun?.close() } catch (_: Exception) {}
         tun = fd
         tunOut = FileOutputStream(fd.fileDescriptor)
-        startUplink(fd)
-        updateNotification("Connected · $ip")
-        broadcast(STATE_CONNECTED, ip)
-        Log.i(TAG, "tunnel established ip=$ip mtu=$mtu")
+        currentIp = ip
+        startUplink(fd, ++uplinkGen)
+        return true
     }
 
-    /** startUplink pumps packets from the TUN device into the encrypted socket. */
-    private fun startUplink(fd: ParcelFileDescriptor) {
+    /** startUplink pumps packets from the TUN device into the current link. */
+    private fun startUplink(fd: ParcelFileDescriptor, gen: Int) {
         val input = FileInputStream(fd.fileDescriptor)
         uplink = Thread {
             val buf = ByteArray(65535)
             try {
-                while (running.get()) {
+                while (running.get() && gen == uplinkGen) {
                     val n = input.read(buf)
-                    if (n <= 0) {
-                        if (n < 0) break else continue
-                    }
-                    val s = session ?: continue
-                    val frame = s.seal(buf, 0, n)
-                    webSocket?.send(frame.toByteString())
+                    if (n <= 0) { if (n < 0) break else continue }
+                    val l = link ?: continue
+                    l.ws.send(l.session.seal(buf, 0, n).toByteString())
                 }
             } catch (e: Exception) {
-                if (running.get()) Log.w(TAG, "uplink ended", e)
+                if (running.get() && gen == uplinkGen) Log.w(TAG, "uplink ended", e)
             }
-        }.apply { name = "arnos-uplink"; isDaemon = true; start() }
+        }.apply { name = "arnos-uplink-$gen"; isDaemon = true; start() }
+    }
+
+    private fun scheduleReconnect(reason: String) {
+        if (userStopped || !running.get()) return
+        link = null
+        val delay = reconnectDelay
+        reconnectDelay = (reconnectDelay * 2).coerceAtMost(RECONNECT_MAX_MS)
+        Log.w(TAG, "reconnecting in ${delay}ms ($reason)")
+        broadcast(STATE_CONNECTING, "reconnecting…")
+        updateNotification("Reconnecting…")
+        ctl.postDelayed({ connectWebSocket() }, delay)
+    }
+
+    private fun scheduleKeepAlive() {
+        ctl.postDelayed(object : Runnable {
+            override fun run() {
+                if (!running.get()) return
+                // Application-level ping as a TEXT data frame: proxies reset
+                // their idle timers on data (not always on WS control pings).
+                try { link?.ws?.send("{\"type\":\"ping\"}") } catch (_: Exception) {}
+                ctl.postDelayed(this, KEEPALIVE_MS)
+            }
+        }, KEEPALIVE_MS)
     }
 
     private fun stopTunnel(state: String, detail: String?) {
+        userStopped = true
         if (!running.getAndSet(false)) {
-            // Even if we were already stopping, make sure we leave the foreground.
-            stopForegroundCompat()
-            stopSelf()
-            return
+            stopForegroundCompat(); stopSelf(); return
         }
-        try { webSocket?.close(1000, "bye") } catch (_: Exception) {}
+        ctl.removeCallbacksAndMessages(null)
+        try { link?.ws?.close(1000, "bye") } catch (_: Exception) {}
+        link = null
+        uplinkGen++
         try { uplink?.interrupt() } catch (_: Exception) {}
         try { tun?.close() } catch (_: Exception) {}
         httpClient?.dispatcher?.executorService?.shutdown()
-        tun = null
-        tunOut = null
-        session = null
+        tun = null; tunOut = null; currentIp = null
         broadcast(state, detail)
         stopForegroundCompat()
         stopSelf()
@@ -246,11 +282,11 @@ class ArnosVpnService : VpnService() {
 
     override fun onDestroy() {
         stopTunnel(STATE_DISCONNECTED, null)
+        if (::ctlThread.isInitialized) ctlThread.quitSafely()
         super.onDestroy()
     }
 
     override fun onRevoke() {
-        // The system or user revoked VPN consent.
         stopTunnel(STATE_DISCONNECTED, "revoked")
         super.onRevoke()
     }
@@ -258,11 +294,10 @@ class ArnosVpnService : VpnService() {
     // --- notifications & status ---------------------------------------------
 
     private fun broadcast(state: String, detail: String?) {
-        val intent = Intent(ACTION_STATE)
-            .setPackage(packageName)
-            .putExtra(EXTRA_STATE, state)
-            .putExtra(EXTRA_DETAIL, detail)
-        sendBroadcast(intent)
+        sendBroadcast(
+            Intent(ACTION_STATE).setPackage(packageName)
+                .putExtra(EXTRA_STATE, state).putExtra(EXTRA_DETAIL, detail),
+        )
     }
 
     private fun notification(text: String): Notification {
@@ -287,8 +322,7 @@ class ArnosVpnService : VpnService() {
     }
 
     private fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, notification(text))
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
     }
 
     private fun ensureChannel() {

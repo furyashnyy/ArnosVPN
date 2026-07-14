@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"arnosvpn/internal/provision"
 )
 
 // Controller manages the tunnel lifecycle for the GUI: it holds the server
@@ -21,6 +23,7 @@ type Controller struct {
 	tunnel     *Tunnel
 	connected  bool
 	connecting bool
+	wantConn   bool
 	mode       string
 	lastError  string
 }
@@ -243,31 +246,92 @@ func (c *Controller) Connect(mode string) error {
 	c.tunnel = tunnel
 	c.connected = true
 	c.connecting = false
+	c.wantConn = true
 	c.mu.Unlock()
 	guiLog.add("connected, assigned " + tunnel.LocalIP)
 
-	go func() {
-		var runErr error
-		switch mode {
-		case "tun":
-			runErr = RunTUN(ctx, tunnel, resolveHost(profile.Host), "arnos0")
-		default:
-			runErr = RunProxy(ctx, tunnel, socks, httpAddr)
-		}
+	// Supervisor: run the tunnel and, on any unexpected drop, reconnect with
+	// backoff until the user disconnects. This is what keeps the VPN up instead
+	// of dying after a few minutes.
+	go c.supervise(ctx, profile, mode, socks, httpAddr, tunnel)
+	return nil
+}
+
+func (c *Controller) supervise(ctx context.Context, profile provision.Profile, mode, socks, httpAddr string, tunnel *Tunnel) {
+	for {
+		runErr := runMode(ctx, tunnel, mode, socks, httpAddr)
+		_ = tunnel.Close()
+
 		c.mu.Lock()
 		c.connected = false
 		c.tunnel = nil
-		if runErr != nil && ctx.Err() == nil {
-			c.lastError = runErr.Error()
-			guiLog.add("disconnected: " + runErr.Error())
-		} else {
-			guiLog.add("disconnected")
-		}
+		still := c.wantConn && ctx.Err() == nil
 		c.mu.Unlock()
-		_ = tunnel.Close()
-	}()
-	return nil
+		if !still {
+			guiLog.add("disconnected")
+			return
+		}
+		if runErr != nil {
+			guiLog.add("connection lost: " + runErr.Error() + " — reconnecting")
+		} else {
+			guiLog.add("connection lost — reconnecting")
+		}
+
+		// Reconnect with exponential backoff.
+		delay := 2 * time.Second
+		var nt *Tunnel
+		for {
+			c.mu.Lock()
+			c.connecting = true
+			ok := c.wantConn
+			c.mu.Unlock()
+			if !ok || ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
+			t, err := Connect(dctx, profile)
+			dcancel()
+			if err == nil {
+				nt = t
+				break
+			}
+			delay *= 2
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+		}
+
+		c.mu.Lock()
+		if !c.wantConn {
+			c.mu.Unlock()
+			_ = nt.Close()
+			return
+		}
+		c.tunnel = nt
+		c.connected = true
+		c.connecting = false
+		c.lastError = ""
+		c.mu.Unlock()
+		guiLog.add("reconnected, assigned " + nt.LocalIP)
+		tunnel = nt
+	}
 }
+
+func runMode(ctx context.Context, tunnel *Tunnel, mode, socks, httpAddr string) error {
+	if mode == "tun" {
+		return RunTUN(ctx, tunnel, resolveHost(tunnelHost(tunnel)), "arnos0")
+	}
+	return RunProxy(ctx, tunnel, socks, httpAddr)
+}
+
+// tunnelHost returns the gateway; TUN mode resolves the server host separately
+// via the profile at dial time, so the gateway is a safe placeholder here.
+func tunnelHost(t *Tunnel) string { return t.Gateway }
 
 // Disconnect tears down the active tunnel.
 func (c *Controller) Disconnect() {
