@@ -105,6 +105,8 @@ class ArnosVpnService : VpnService() {
         if (running.getAndSet(true)) return START_STICKY // already up
 
         userStopped = false
+        VpnRuntime.resetCounters()
+        VpnRuntime.since = 0
         httpClient = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -159,7 +161,9 @@ class ArnosVpnService : VpnService() {
                 val l = link ?: return
                 if (ws !== l.ws) return
                 try {
-                    tunOut?.write(l.session.open(bytes.toByteArray()))
+                    val pkt = l.session.open(bytes.toByteArray())
+                    tunOut?.write(pkt)
+                    VpnRuntime.addRx(pkt.size.toLong())
                 } catch (e: Exception) {
                     Log.w(TAG, "downlink failed", e)
                 }
@@ -232,6 +236,7 @@ class ArnosVpnService : VpnService() {
                     if (n <= 0) { if (n < 0) break else continue }
                     val l = link ?: continue
                     l.ws.send(l.session.seal(buf, 0, n).toByteString())
+                    VpnRuntime.addTx(n.toLong())
                 }
             } catch (e: Exception) {
                 if (running.get() && gen == uplinkGen) Log.w(TAG, "uplink ended", e)
@@ -294,6 +299,29 @@ class ArnosVpnService : VpnService() {
     // --- notifications & status ---------------------------------------------
 
     private fun broadcast(state: String, detail: String?) {
+        // Keep the process-wide snapshot (read by the WebView control bridge) and
+        // the log feed in sync with every state transition.
+        when (state) {
+            STATE_CONNECTING -> {
+                VpnRuntime.connecting = true; VpnRuntime.connected = false; VpnRuntime.error = null
+                VpnRuntime.addLog(if (detail == "reconnecting…") "connection lost — reconnecting" else "connecting to ${detail ?: profile?.host}")
+            }
+            STATE_CONNECTED -> {
+                VpnRuntime.connecting = false; VpnRuntime.connected = true; VpnRuntime.error = null
+                VpnRuntime.ip = detail
+                if (VpnRuntime.since == 0L) VpnRuntime.since = System.currentTimeMillis() / 1000
+                VpnRuntime.addLog("connected, assigned ${detail ?: "?"}")
+            }
+            STATE_ERROR -> {
+                VpnRuntime.connecting = false; VpnRuntime.connected = false; VpnRuntime.error = detail
+                VpnRuntime.addLog("error: ${detail ?: "unknown"}")
+            }
+            else -> { // disconnected
+                VpnRuntime.connecting = false; VpnRuntime.connected = false
+                VpnRuntime.ip = null; VpnRuntime.since = 0
+                VpnRuntime.addLog("disconnected")
+            }
+        }
         sendBroadcast(
             Intent(ACTION_STATE).setPackage(packageName)
                 .putExtra(EXTRA_STATE, state).putExtra(EXTRA_DETAIL, detail),
