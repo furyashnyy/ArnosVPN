@@ -11,6 +11,7 @@
 #   sudo ./setup.sh                         # interactive wizard (recommended)
 #   sudo ./setup.sh vpn.example.com you@example.com    # pre-fill the answers
 #   sudo ARNOS_DOMAIN=vpn.example.com ./setup.sh        # non-interactive (no TTY)
+#   sudo ./setup.sh uninstall               # completely remove ArnosVPN
 #
 # Requirements: a public host where DNS for your domain points here and the
 # chosen port (443 by default) is free and reachable. Debian/Ubuntu, RHEL/Fedora,
@@ -43,6 +44,60 @@ ask_yn() { # ask_yn PROMPT DEFAULT(y/n) -> returns 0 for yes
   read -rp "$1 ($hint): " ans; ans="${ans:-$d}"; [[ "$ans" =~ ^[YyДд] ]]
 }
 
+# uninstall removes ArnosVPN completely. It is deliberately hard to trigger by
+# accident: the operator must type "I UNDERSTAND" and then the project path
+# exactly as shown (auto-detected — where this script lives).
+uninstall() {
+  local path="$REPO_DIR" port="443" c1 c2
+  if [ -f "$ENV_FILE" ]; then
+    port="$(grep -E '^ARNOS_PUBLIC_PORT=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2 || true)"
+    [ -n "$port" ] || port="443"
+  fi
+  echo
+  warn "ПОЛНОЕ УДАЛЕНИЕ ArnosVPN"
+  echo "Будут безвозвратно удалены:"
+  echo "  • systemd-сервис   arnosvpn.service"
+  echo "  • бинарники        ${PREFIX}/arnosvpn-server, ${PREFIX}/arnosvpnctl"
+  echo "  • конфигурация     ${ETC_DIR}"
+  echo "  • состояние        ${STATE_DIR}  (PSK и сертификаты!)"
+  echo "  • каталог проекта  ${path}"
+  echo
+  [ -t 0 ] || die "удаление требует подтверждения — запустите в терминале"
+
+  echo "Для подтверждения введите точно:  I UNDERSTAND"
+  read -rp "> " c1
+  [ "$c1" = "I UNDERSTAND" ] || die "не подтверждено — отменено"
+  echo "Теперь введите путь к ArnosVPN точно как показано:  ${path}"
+  read -rp "> " c2
+  [ "$c2" = "$path" ] || die "путь не совпадает — отменено"
+
+  log "останавливаю и удаляю сервис"
+  systemctl disable --now arnosvpn.service >/dev/null 2>&1 || true
+  rm -f "$UNIT"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+
+  log "закрываю порт ${port} в фаерволе (если был открыт)"
+  if command -v ufw >/dev/null 2>&1; then ufw delete allow "${port}/tcp" >/dev/null 2>&1 || true; fi
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --permanent --remove-port="${port}/tcp" >/dev/null 2>&1 || true
+    firewall-cmd --reload >/dev/null 2>&1 || true
+  fi
+
+  log "удаляю бинарники, конфигурацию и состояние"
+  rm -f "$PREFIX/arnosvpn-server" "$PREFIX/arnosvpnctl"
+  rm -rf "$ETC_DIR" "$STATE_DIR"
+  rm -f /etc/sysctl.d/99-arnosvpn.conf /etc/modules-load.d/arnosvpn.conf
+
+  log "ArnosVPN удалён. Удаляю каталог проекта ${path} …"
+  cd / && rm -rf "$path"
+  log "готово."
+}
+
+# CLI entry point for removal: `setup.sh uninstall`.
+case "${1:-}" in
+  uninstall|remove|--uninstall|-u) uninstall; exit 0 ;;
+esac
+
 # --- gather answers ---------------------------------------------------------
 # Pre-fill from args/env; the wizard runs when attached to a terminal.
 DOMAIN="${1:-${ARNOS_DOMAIN:-}}"
@@ -53,7 +108,12 @@ PSK="${ARNOS_PSK:-}"
 
 if [ -t 0 ]; then
   echo
-  log "Настройка сервера ArnosVPN — ответьте на несколько вопросов."
+  log "ArnosVPN — выберите действие:"
+  echo "  1) Установить / обновить"
+  echo "  2) Полностью удалить"
+  if [ "$(ask "Действие" "1")" = "2" ]; then uninstall; exit 0; fi
+  echo
+  log "Установка — ответьте на несколько вопросов."
   echo
   DOMAIN="$(ask "Домен, на который подключаются клиенты (например vpn.example.com)" "$DOMAIN")"
   [ -n "$DOMAIN" ] || die "домен обязателен"

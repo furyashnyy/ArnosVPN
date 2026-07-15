@@ -88,7 +88,8 @@ certificate for your domain.
 git clone https://…/ArnosVPN && cd ArnosVPN
 sudo ./setup.sh
 # or pre-fill answers: sudo ./setup.sh vpn.example.com you@example.com
-# manage: systemctl status|restart arnosvpn · journalctl -u arnosvpn -f
+# manage:    systemctl status|restart arnosvpn · journalctl -u arnosvpn -f
+# uninstall: sudo ./setup.sh uninstall   (asks you to type I UNDERSTAND + the path)
 ```
 
 Point your domain's DNS at the host and make sure the chosen port is free and
