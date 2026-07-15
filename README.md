@@ -41,7 +41,7 @@ apps/android/           Android VpnService client (Kotlin, Gradle)
 apps/android/build/     CI-built release APK lands here
 deploy/                 plain-Docker + Coolify guides, Traefik dynamic config
 docs/PROTOCOL.md        normative wire-protocol spec
-install.sh              one-shot bare-metal installer (systemd, self-TLS on 443)
+setup.sh                interactive bare-metal installer (systemd, self-TLS)
 Dockerfile              static server build (Alpine + iptables)
 docker-compose.yml      standalone compose (self-TLS on 443, Let's Encrypt)
 docker-compose-coolify.yaml  behind Coolify/Traefik (proxy mode, built locally)
@@ -77,19 +77,22 @@ and a QR code you scan into the app.
 Requirements are the same everywhere: `NET_ADMIN`, the `/dev/net/tun` device, and
 `net.ipv4.ip_forward=1` (the installer and the compose/run commands set these).
 
-### 1. Bare metal — `install.sh` (default)
+### 1. Bare metal — `setup.sh` (default)
 
-Full install and configuration in one go on a plain VPS: builds the server,
-installs a systemd service, and terminates TLS itself on **:443** with a
-Let's Encrypt certificate for your domain.
+An interactive question-and-answer wizard for a plain VPS: it asks for the
+domain, e-mail, port and DNS, then builds the server, installs a systemd
+service, and terminates TLS itself (default **:443**) with a Let's Encrypt
+certificate for your domain.
 
 ```bash
 git clone https://…/ArnosVPN && cd ArnosVPN
-sudo ./install.sh vpn.example.com you@example.com
+sudo ./setup.sh
+# or pre-fill answers: sudo ./setup.sh vpn.example.com you@example.com
 # manage: systemctl status|restart arnosvpn · journalctl -u arnosvpn -f
 ```
 
-Point your domain's DNS at the host and make sure port 443 is free and open.
+Point your domain's DNS at the host and make sure the chosen port is free and
+open.
 
 ### 2. Docker
 
