@@ -39,10 +39,12 @@ internal/config/        env-driven config with self-generated PSK
 internal/provision/     arnos:// connect URI + QR generation
 apps/android/           Android VpnService client (Kotlin, Gradle)
 apps/android/build/     CI-built release APK lands here
-deploy/                 Traefik dynamic config + Coolify guide
+deploy/                 plain-Docker + Coolify guides, Traefik dynamic config
 docs/PROTOCOL.md        normative wire-protocol spec
+install.sh              one-shot bare-metal installer (systemd, self-TLS on 443)
 Dockerfile              static server build (Alpine + iptables)
-docker-compose.yml      Coolify/Traefik-ready deployment (built locally)
+docker-compose.yml      standalone compose (self-TLS on 443, Let's Encrypt)
+docker-compose-coolify.yaml  behind Coolify/Traefik (proxy mode, built locally)
 ```
 
 ## How it works
@@ -68,21 +70,61 @@ The full packet path and crypto are specified in
 
 ## Quick start (server)
 
-With Docker:
+Pick the deployment that fits. All of them self-configure: the server generates
+and persists its pre-shared key on first run and prints an `arnos://` connect URI
+and a QR code you scan into the app.
+
+Requirements are the same everywhere: `NET_ADMIN`, the `/dev/net/tun` device, and
+`net.ipv4.ip_forward=1` (the installer and the compose/run commands set these).
+
+### 1. Bare metal — `install.sh` (default)
+
+Full install and configuration in one go on a plain VPS: builds the server,
+installs a systemd service, and terminates TLS itself on **:443** with a
+Let's Encrypt certificate for your domain.
 
 ```bash
-cp .env.example .env         # set ARNOS_DOMAIN
+git clone https://…/ArnosVPN && cd ArnosVPN
+sudo ./install.sh vpn.example.com you@example.com
+# manage: systemctl status|restart arnosvpn · journalctl -u arnosvpn -f
+```
+
+Point your domain's DNS at the host and make sure port 443 is free and open.
+
+### 2. Docker
+
+Build the image and run it standalone (self-TLS on 443, Let's Encrypt). See
+[`deploy/docker.md`](deploy/docker.md) for the full command; in short:
+
+```bash
+docker build -t arnosvpn .
+docker run -d --name arnosvpn --restart unless-stopped \
+  --cap-add NET_ADMIN --device /dev/net/tun --sysctl net.ipv4.ip_forward=1 \
+  -p 443:443 -e ARNOS_DOMAIN=vpn.example.com -e ARNOS_TLS_MODE=self \
+  -e CERT_PROVIDER=letsencrypt -e ARNOS_ACME_EMAIL=you@example.com \
+  -e ARNOS_LISTEN=:443 -e ARNOS_PUBLIC_PORT=443 -v arnos-data:/data arnosvpn
+docker logs -f arnosvpn        # prints the arnos:// connect URI and a QR code
+```
+
+### 3. Docker Compose
+
+Standalone compose (self-TLS on 443):
+
+```bash
+cp .env.example .env         # set ARNOS_DOMAIN (+ ARNOS_ACME_EMAIL)
 docker compose up -d --build
 docker compose logs -f       # prints the arnos:// connect URI and a QR code
 ```
 
-On Coolify: attach your domain to the service and set its **Ports Exposes** to
-`8443` — that's it. See [`deploy/coolify.md`](deploy/coolify.md) for the full
-walkthrough (proxy mode vs. self mode on a random published port).
+Behind **Coolify** / an existing Traefik instead, use the proxy-mode compose and
+attach your domain to the service with **Ports Exposes** = `8443`:
 
-Requirements: the container runs with `--cap-add NET_ADMIN`, the
-`/dev/net/tun` device, and `net.ipv4.ip_forward=1` (all set in the compose
-file).
+```bash
+docker compose -f docker-compose-coolify.yaml up -d --build
+```
+
+See [`deploy/coolify.md`](deploy/coolify.md) for the full Coolify walkthrough
+(proxy mode vs. self mode on a random published port).
 
 ### TLS modes
 

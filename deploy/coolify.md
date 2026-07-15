@@ -17,11 +17,12 @@ already has.
 Port 443 stays with Coolify's Traefik; ArnosVPN listens on an internal port and
 Traefik forwards the WebSocket to it. SSL is Coolify's existing certificate.
 
-1. In Coolify, create a **Docker Compose** resource from this repository.
+1. In Coolify, create a **Docker Compose** resource from this repository and set
+   its compose file to **`docker-compose-coolify.yaml`** (the repo's default
+   `docker-compose.yml` is the standalone self-TLS variant).
 2. Attach your domain (`vpn.example.com`) to the `arnosvpn` service. Coolify
    obtains/renews the certificate automatically.
-3. Set the service's **Ports Exposes** to `8443` (the internal port in
-   `docker-compose.yml`). This is the "expose" you already use — no host port is
+3. Set the service's **Ports Exposes** to `8443` (the internal port in `docker-compose-coolify.yaml`). This is the "expose" you already use — no host port is
    published, so nothing collides with 443.
 4. Set env: `ARNOS_DOMAIN=vpn.example.com` (proxy mode and `ARNOS_PUBLIC_PORT=443`
    are already the defaults).
@@ -41,7 +42,7 @@ observer it is ordinary HTTPS to your domain.
 If you would rather ArnosVPN terminate TLS itself (keeping its certificate
 end-to-end) on a Docker-assigned random host port:
 
-1. In `docker-compose.yml`, uncomment the `ports: ["8443"]` block (the short
+1. In `docker-compose-coolify.yaml`, uncomment the `ports: ["8443"]` block (the short
    form publishes the container port to a **random host port**) and the
    self-mode env/volume lines.
 2. Set env:
