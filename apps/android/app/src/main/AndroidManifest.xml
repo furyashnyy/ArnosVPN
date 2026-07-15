@@ -10,6 +10,14 @@
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- Enumerate launchable apps for the split-tunnel (per-app VPN) picker. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

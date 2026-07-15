@@ -126,6 +126,8 @@
   .seg{display:flex;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:4px}
   .seg button{flex:1;padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;color:var(--muted)}
   .seg button.on{background:var(--primary);color:#fff}
+  .conn-actions{display:flex;gap:10px}
+  .conn-actions .btn{flex:1}
 
   /* Stat tiles */
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
@@ -186,11 +188,14 @@
     .main{padding:calc(16px + env(safe-area-inset-top)) 16px calc(86px + env(safe-area-inset-bottom))}
     .page-title{font-size:20px;margin-bottom:16px}
     .srv-grid{display:flex;flex-direction:column;gap:14px}
-    .srv-grid>.card{order:-1} /* connection panel above the server list */
-    .conn{gap:14px;padding:20px 14px}
-    .power{width:116px;height:116px;box-shadow:0 0 0 8px color-mix(in srgb,var(--muted) 10%,transparent)}
-    .power svg{width:44px;height:44px}
-    .cstat{font-size:17px}
+    .srv-grid>.card{order:-1;width:100%} /* connection panel: full-width hero above the list */
+    .conn{gap:16px;padding:34px 18px}
+    .power{width:152px;height:152px}
+    .power svg{width:58px;height:58px}
+    .cstat{font-size:19px}
+    /* stretch the action controls to fill the hero block */
+    .conn>.seg,.conn>.btn,.conn>.mini,.conn-actions{width:100%}
+    .conn>.btn{padding:13px 18px}
     .empty{padding:32px 10px}
     .search{margin-bottom:0}
     .tiles{grid-template-columns:1fr 1fr;gap:12px}
@@ -266,6 +271,10 @@ let STATE={servers:[],connected:false};
 let SETTINGS={};
 let curMode="proxy";
 let pings={};
+// On Android the tunnel is always delivered via the system VpnService, so the
+// desktop-only knobs (Proxy/TUN, SOCKS/HTTP addresses, LAN, system proxy…) are
+// hidden and only controls that actually work on the phone are shown.
+const IS_ANDROID=!!window.ArnosBridge;
 
 async function refreshState(){try{STATE=await api("/api/state");curMode=curMode||STATE.mode||"proxy";}catch(e){}}
 async function loadSettings(){try{SETTINGS=await api("/api/settings");curMode=SETTINGS.mode||"proxy";applyTheme(SETTINGS.theme);}catch(e){}}
@@ -349,13 +358,26 @@ async function pageServers(){
   power.innerHTML=`<svg viewBox="0 0 24 24"><path d="M12 3v9" stroke-linecap="round"/><path d="M6.4 6.4a8 8 0 1011.2 0" stroke-linecap="round"/></svg>`;
   const cstat=el("div","cstat","Отключено");
   const cip=el("div","cip","");
-  const seg=el("div","seg");
-  ["proxy","tun"].forEach(md=>{const b=el("button",curMode===md?"on":"",md==="proxy"?"Proxy":"TUN");
-    b.onclick=()=>{curMode=md;SETTINGS.mode=md;saveSettings();[...seg.children].forEach(x=>x.classList.toggle("on",x===b));};seg.append(b);});
+  conn.append(power,cstat,cip);
+  // Proxy/TUN switch is desktop-only (Android is always VpnService/TUN).
+  if(!IS_ANDROID){
+    const seg=el("div","seg");
+    ["proxy","tun"].forEach(md=>{const b=el("button",curMode===md?"on":"",md==="proxy"?"Proxy":"TUN");
+      b.onclick=()=>{curMode=md;SETTINGS.mode=md;saveSettings();[...seg.children].forEach(x=>x.classList.toggle("on",x===b));};seg.append(b);});
+    conn.append(seg);
+  }
   const pingBtn=el("button","btn ghost sm","Тест пинга");pingBtn.onclick=()=>pingOne(STATE.active);
+  conn.append(pingBtn);
+  // Quick access to routing controls right on the main screen.
+  if(IS_ANDROID){
+    const routeRow=el("div","conn-actions");
+    const appsBtn=el("button","btn ghost sm","Приложения");appsBtn.onclick=()=>location.hash="#/apps";
+    const domBtn=el("button","btn ghost sm","Сайты и домены");domBtn.onclick=()=>location.hash="#/domains";
+    routeRow.append(appsBtn,domBtn);conn.append(routeRow);
+  }
   const mini=el("div","mini","");
   power.onclick=onPower;
-  conn.append(power,cstat,cip,seg,pingBtn,mini);
+  conn.append(mini);
   right.append(conn);
 
   grid.append(left,right);m.append(grid);
@@ -428,19 +450,31 @@ async function pageSettings(){
 
   m.append(el("div","group-label","Настройки туннеля"));
   const g2=el("div","rows");
-  g2.append(row("Режим",null,select([{v:"proxy",t:"Proxy"},{v:"tun",t:"TUN"}],SETTINGS.mode||"proxy",
-    v=>{SETTINGS.mode=v;curMode=v;saveSettings();})));
-  g2.append(inputRow("SOCKS-адрес",SETTINGS.socks,v=>{SETTINGS.socks=v;saveSettings();}));
-  g2.append(inputRow("HTTP-прокси адрес",SETTINGS.http,v=>{SETTINGS.http=v;saveSettings();}));
+  if(!IS_ANDROID){
+    g2.append(row("Режим",null,select([{v:"proxy",t:"Proxy"},{v:"tun",t:"TUN"}],SETTINGS.mode||"proxy",
+      v=>{SETTINGS.mode=v;curMode=v;saveSettings();})));
+    g2.append(inputRow("SOCKS-адрес",SETTINGS.socks,v=>{SETTINGS.socks=v;saveSettings();}));
+    g2.append(inputRow("HTTP-прокси адрес",SETTINGS.http,v=>{SETTINGS.http=v;saveSettings();}));
+  }
   g2.append(inputRow("DNS",SETTINGS.dns,v=>{SETTINGS.dns=v;saveSettings();}));
-  g2.append(row("Предпочитаемый тип IP",null,select([{v:"auto",t:"Auto"},{v:"4",t:"IPv4"},{v:"6",t:"IPv6"}],
-    SETTINGS.preferredIP||"auto",v=>{SETTINGS.preferredIP=v;saveSettings();})));
-  g2.append(row("Разрешить подключения из LAN","Открыть прокси на 0.0.0.0",toggle(!!SETTINGS.allowLan,v=>{SETTINGS.allowLan=v;saveSettings();})));
+  if(!IS_ANDROID){
+    g2.append(row("Предпочитаемый тип IP",null,select([{v:"auto",t:"Auto"},{v:"4",t:"IPv4"},{v:"6",t:"IPv6"}],
+      SETTINGS.preferredIP||"auto",v=>{SETTINGS.preferredIP=v;saveSettings();})));
+    g2.append(row("Разрешить подключения из LAN","Открыть прокси на 0.0.0.0",toggle(!!SETTINGS.allowLan,v=>{SETTINGS.allowLan=v;saveSettings();})));
+  }
   m.append(g2);
+
+  if(IS_ANDROID){
+    m.append(el("div","group-label","Маршрутизация"));
+    const gr=el("div","rows");
+    gr.append(row("Приложения через VPN","Выбрать, какие приложения идут через VPN",null,()=>location.hash="#/apps"));
+    gr.append(row("Сайты и домены","Пускать домены напрямую или через VPN",null,()=>location.hash="#/domains"));
+    m.append(gr);
+  }
 
   m.append(el("div","group-label","Дополнительно"));
   const g3=el("div","rows");
-  g3.append(row("Дополнительные настройки",null,null,()=>location.hash="#/settings/advanced"));
+  if(!IS_ANDROID)g3.append(row("Дополнительные настройки",null,null,()=>location.hash="#/settings/advanced"));
   g3.append(row("Пинг","Проверить задержку до активного сервера",null,()=>pingOne(STATE.active)));
   m.append(g3);
 
@@ -518,6 +552,88 @@ function pageAbout(){
   m.append(c);
 }
 
+// ---- Split tunneling: which apps use the VPN --------------------------------
+async function pageApps(){
+  setActiveNav("settings");await loadSettings();
+  const m=main();m.innerHTML="";
+  const h=el("h1","page-title");h.append(backBtn("#/settings"));h.append(document.createTextNode("Приложения"));m.append(h);
+
+  let mode=SETTINGS.splitMode||"off";
+  let chosen=new Set(SETTINGS.splitApps||[]);
+  const persist=()=>{SETTINGS.splitMode=mode;SETTINGS.splitApps=[...chosen];saveSettings();};
+
+  const g=el("div","rows");
+  g.append(row("Режим",{off:"Все приложения через VPN",allowed:"Только выбранные",disallowed:"Все, кроме выбранных"}[mode],
+    select([{v:"off",t:"Все приложения"},{v:"allowed",t:"Только выбранные"},{v:"disallowed",t:"Все, кроме выбранных"}],
+      mode,v=>{mode=v;persist();render();})));
+  m.append(g);
+
+  const hint=el("div","group-label","Приложения");m.append(hint);
+  const search=el("div","search",`<svg viewBox="0 0 24 24"><path d="M10 4a6 6 0 104.5 10.3l4.6 4.6 1.4-1.4-4.6-4.6A6 6 0 0010 4z"/></svg>`);
+  const si=el("input");si.placeholder="Поиск приложения";search.append(si);m.append(search);
+  const listWrap=el("div","rows");m.append(listWrap);
+
+  let apps=[];
+  try{const r=await api("/api/apps");apps=r.apps||[];}catch(e){toast(e.message,true);}
+
+  function render(){
+    hint.style.display=mode==="off"?"none":"";
+    search.style.display=mode==="off"?"none":"";
+    listWrap.style.display=mode==="off"?"none":"";
+    if(mode==="off"){listWrap.innerHTML="";return;}
+    const q=si.value.toLowerCase();
+    listWrap.innerHTML="";
+    const items=apps.filter(a=>a.label.toLowerCase().includes(q)||a.package.toLowerCase().includes(q));
+    if(items.length===0){listWrap.append(el("div","empty","Приложения не найдены."));return;}
+    items.forEach(a=>{
+      const t=toggle(chosen.has(a.package),on=>{if(on)chosen.add(a.package);else chosen.delete(a.package);persist();});
+      listWrap.append(row(a.label,a.package,t));
+    });
+  }
+  si.oninput=render;
+  render();
+}
+
+// ---- Domain / host routing: direct or through the VPN ------------------------
+async function pageDomains(){
+  setActiveNav("settings");await loadSettings();
+  const m=main();m.innerHTML="";
+  const h=el("h1","page-title");h.append(backBtn("#/settings"));h.append(document.createTextNode("Сайты и домены"));m.append(h);
+
+  let rules=(SETTINGS.domainRules||[]).slice();
+  const persist=()=>{SETTINGS.domainRules=rules;saveSettings();};
+
+  // Add bar: host input + action + button.
+  const add=el("div","card");add.style.cssText="padding:16px;margin-bottom:16px";
+  const f=el("div","field");f.append(el("label",null,"Домен или хост"));
+  const inp=el("input");inp.placeholder="например, example.com";f.append(inp);
+  let act="direct";
+  const f2=el("div","field");f2.append(el("label",null,"Куда направить"));
+  f2.append(select([{v:"direct",t:"Напрямую (мимо VPN)"},{v:"vpn",t:"Через VPN"}],"direct",v=>act=v));
+  const addBtn=el("button","btn","Добавить");
+  addBtn.onclick=()=>{const host=inp.value.trim().toLowerCase().replace(/^\*\.?/,"");if(!host){toast("Введите домен",true);return;}
+    if(rules.some(r=>r.host===host)){toast("Уже есть",true);return;}
+    rules.push({host,action:act});persist();inp.value="";render();toast("Добавлено");};
+  add.append(f,f2,addBtn);m.append(add);
+
+  m.append(el("div","group-label","Правила"));
+  const listWrap=el("div","rows");m.append(listWrap);
+
+  function render(){
+    listWrap.innerHTML="";
+    if(rules.length===0){listWrap.append(el("div","empty","Нет правил. Все домены идут через VPN."));return;}
+    rules.forEach((r,i)=>{
+      const sel=select([{v:"direct",t:"Напрямую"},{v:"vpn",t:"Через VPN"}],r.action,v=>{r.action=v;persist();});
+      const rowEl=row(r.host,r.action==="direct"?"мимо VPN":"через VPN",sel);
+      const del=el("button","more","✕");del.style.marginLeft="4px";
+      del.onclick=()=>{rules.splice(i,1);persist();render();};
+      rowEl.append(del);
+      listWrap.append(rowEl);
+    });
+  }
+  render();
+}
+
 function inputRow(title,value,onSave){
   const inp=el("input","inp");inp.value=value||"";
   inp.onchange=()=>onSave(inp.value.trim());
@@ -529,6 +645,7 @@ function backBtn(href){const b=el("button","back","‹");b.onclick=()=>location.
 const routes={
   "":pageServers,"/":pageServers,"/servers":pageServers,"/add":pageAdd,
   "/settings":pageSettings,"/settings/advanced":pageAdvanced,
+  "/apps":pageApps,"/domains":pageDomains,
   "/stats":pageStats,"/logs":pageLogs,"/about":pageAbout,
 };
 function route(){serversPaint=null;statsPaint=null;const h=location.hash.replace(/^#/,"")||"/servers";

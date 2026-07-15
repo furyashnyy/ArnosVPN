@@ -1,5 +1,6 @@
 package com.arnosvpn.android
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -206,11 +207,13 @@ class ArnosVpnService : VpnService() {
 
         val mask = welcome.getInt("mask")
         val mtu = welcome.optInt("mtu", 1400)
-        val dns = welcome.optJSONArray("dns")
         val builder = Builder().setSession("ArnosVPN").setMtu(mtu)
             .addAddress(ip, mask).addRoute("0.0.0.0", 0)
-        if (dns != null) for (i in 0 until dns.length()) builder.addDnsServer(dns.getString(i))
-        try { builder.addDisallowedApplication(packageName) } catch (_: Exception) {}
+
+        val st = SettingsStore(this).read()
+        applyDns(builder, welcome, st)
+        applySplitApps(builder, st)
+        applyDomainRules(builder, st)
 
         val fd = builder.establish()
         if (fd == null) {
@@ -223,6 +226,64 @@ class ArnosVpnService : VpnService() {
         currentIp = ip
         startUplink(fd, ++uplinkGen)
         return true
+    }
+
+    /** applyDns uses the user's DNS override when set, else the server's. */
+    private fun applyDns(builder: Builder, welcome: org.json.JSONObject, st: org.json.JSONObject) {
+        val custom = st.optString("dns", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (custom.isNotEmpty()) {
+            custom.forEach { runCatching { builder.addDnsServer(it) } }
+            return
+        }
+        val dns = welcome.optJSONArray("dns") ?: return
+        for (i in 0 until dns.length()) runCatching { builder.addDnsServer(dns.getString(i)) }
+    }
+
+    /** applySplitApps implements per-app VPN routing (split tunneling). Allowed
+     *  and disallowed lists can't be mixed, so each mode takes one path. */
+    private fun applySplitApps(builder: Builder, st: org.json.JSONObject) {
+        val mode = st.optString("splitMode", "off")
+        val apps = st.optJSONArray("splitApps")
+        val list = (0 until (apps?.length() ?: 0)).mapNotNull { apps?.optString(it) }.filter { it.isNotEmpty() }
+        if (mode == "allowed" && list.isNotEmpty()) {
+            // Only the chosen apps are tunneled (ours stays out automatically).
+            list.forEach { runCatching { builder.addAllowedApplication(it) } }
+            return
+        }
+        if (mode == "disallowed") {
+            // Everything is tunneled except the chosen apps.
+            list.forEach { runCatching { builder.addDisallowedApplication(it) } }
+        }
+        // Default / fallback: tunnel everything except our own app.
+        runCatching { builder.addDisallowedApplication(packageName) }
+    }
+
+    /** applyDomainRules routes "direct" domains around the VPN by excluding their
+     *  resolved IPs from the tunnel (Android 13+; older versions tunnel all).
+     *  IpPrefix has no guaranteed-public constructor in the SDK stubs, so it is
+     *  built reflectively — this always compiles and simply no-ops if unavailable. */
+    @SuppressLint("NewApi")
+    private fun applyDomainRules(builder: Builder, st: org.json.JSONObject) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val rules = st.optJSONArray("domainRules") ?: return
+        val ctor = runCatching {
+            android.net.IpPrefix::class.java.getConstructor(
+                java.net.InetAddress::class.java, Int::class.javaPrimitiveType,
+            )
+        }.getOrNull() ?: return
+        for (i in 0 until rules.length()) {
+            val r = rules.optJSONObject(i) ?: continue
+            if (r.optString("action") != "direct") continue
+            val host = r.optString("host")
+            if (host.isEmpty()) continue
+            runCatching {
+                for (addr in java.net.InetAddress.getAllByName(host)) {
+                    val prefixLen = if (addr is java.net.Inet4Address) 32 else 128
+                    val prefix = ctor.newInstance(addr, prefixLen) as android.net.IpPrefix
+                    builder.excludeRoute(prefix)
+                }
+            }
+        }
     }
 
     /** startUplink pumps packets from the TUN device into the current link. */

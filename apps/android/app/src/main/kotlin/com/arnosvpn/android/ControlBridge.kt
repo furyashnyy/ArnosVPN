@@ -1,6 +1,7 @@
 package com.arnosvpn.android
 
 import android.content.Context
+import android.content.Intent
 import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
@@ -78,6 +79,7 @@ class ControlBridge(
             path == "/api/disconnect" -> { actions.onDisconnect(); JSONObject() }
             path == "/api/logs" -> JSONObject().put("lines", JSONArray(VpnRuntime.logs()))
             path == "/api/logs/clear" -> { VpnRuntime.clearLogs(); JSONObject() }
+            path == "/api/apps" -> installedApps()
             else -> throw IllegalArgumentException("unknown endpoint $path")
         }
     }
@@ -122,6 +124,23 @@ class ControlBridge(
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", (e.message ?: "unreachable"))
         }
+    }
+
+    /** installedApps lists launchable apps for the split-tunnel picker. */
+    private fun installedApps(): JSONObject {
+        val pm = app.packageManager
+        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val seen = HashSet<String>()
+        val items = ArrayList<Pair<String, String>>() // package to label
+        for (ri in pm.queryIntentActivities(main, 0)) {
+            val pkg = ri.activityInfo?.packageName ?: continue
+            if (pkg == app.packageName || !seen.add(pkg)) continue
+            items.add(pkg to ri.loadLabel(pm).toString())
+        }
+        items.sortBy { it.second.lowercase() }
+        val arr = JSONArray()
+        for ((pkg, label) in items) arr.put(JSONObject().put("package", pkg).put("label", label))
+        return JSONObject().put("apps", arr)
     }
 
     /** subscribe fetches a URL of arnos:// URIs (optionally base64) and adds each. */
