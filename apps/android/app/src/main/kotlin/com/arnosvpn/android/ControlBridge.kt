@@ -158,9 +158,18 @@ class ControlBridge(
     }
 
     private fun httpGet(rawUrl: String): String {
-        val conn = (URL(rawUrl).openConnection() as HttpURLConnection).apply {
+        val url = URL(rawUrl)
+        // Only fetch subscriptions over HTTP(S), and only from public hosts, so a
+        // crafted subscription URL cannot reach loopback/private addresses (SSRF).
+        val scheme = url.protocol.lowercase()
+        require(scheme == "http" || scheme == "https") { "subscription URL must be http(s)" }
+        for (addr in java.net.InetAddress.getAllByName(url.host)) {
+            require(isPublicAddress(addr)) { "refusing to connect to non-public address ${addr.hostAddress}" }
+        }
+        val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 15000
+            instanceFollowRedirects = false // redirects could bounce to internal hosts
             setRequestProperty("User-Agent", "ArnosVPN/android")
         }
         try {
@@ -181,6 +190,11 @@ class ControlBridge(
             conn.disconnect()
         }
     }
+
+    /** isPublicAddress rejects loopback, private, link-local and wildcard IPs. */
+    private fun isPublicAddress(addr: java.net.InetAddress): Boolean =
+        !(addr.isLoopbackAddress || addr.isSiteLocalAddress || addr.isLinkLocalAddress ||
+            addr.isAnyLocalAddress || addr.isMulticastAddress)
 
     /** maybeBase64 decodes a whole-body base64 feed; null if already plain text. */
     private fun maybeBase64(s: String): String? {

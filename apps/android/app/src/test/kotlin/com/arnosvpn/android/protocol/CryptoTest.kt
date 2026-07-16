@@ -46,6 +46,27 @@ class CryptoTest {
         assertArrayEquals(plaintext, server.open(frame))
     }
 
+    @Test
+    fun rejectsReplayedFrame() {
+        // A frame that was already opened must be rejected the second time: the
+        // receive counter must strictly advance (anti-replay). The client session
+        // receives with the s2c key, so seal with a server-side s2c sender.
+        val server = ServerSendSession(psk, clientSalt, serverSalt)
+        val client = Crypto.deriveSession(psk, clientSalt, serverSalt)
+        val f0 = server.seal(plaintext)
+        val f1 = server.seal(plaintext)
+        assertArrayEquals(plaintext, client.open(f0))
+        assertArrayEquals(plaintext, client.open(f1))
+
+        var rejected = false
+        try { client.open(f0) } catch (e: IllegalStateException) { rejected = true }
+        assertEquals("replay of f0 must be rejected", true, rejected)
+
+        rejected = false
+        try { client.open(f1) } catch (e: IllegalStateException) { rejected = true }
+        assertEquals("replay of f1 must be rejected", true, rejected)
+    }
+
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }
 
@@ -72,6 +93,46 @@ private class ServerSideSession(psk: ByteArray, clientSalt: ByteArray, serverSal
         val pt = cipher.doFinal(frame, 8, frame.size - 8)
         val realLen = ((pt[0].toInt() and 0xff) shl 8) or (pt[1].toInt() and 0xff)
         return pt.copyOfRange(2, 2 + realLen)
+    }
+
+    private fun hmac(key: ByteArray, vararg parts: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"))
+        for (p in parts) mac.update(p)
+        return mac.doFinal()
+    }
+}
+
+/**
+ * ServerSendSession seals frames with the s2c key, the way the real server sends
+ * to a client. A client Session (recvKey = s2c) can therefore open its frames.
+ * Used only to exercise the client's anti-replay path in a JVM unit test.
+ */
+private class ServerSendSession(psk: ByteArray, clientSalt: ByteArray, serverSalt: ByteArray) {
+    private val sendKey: javax.crypto.spec.SecretKeySpec
+    private var ctr = 0L
+
+    init {
+        val prk = hmac(clientSalt + serverSalt, psk)
+        val s2c = hmac(prk, "arnos-s2c-v1".toByteArray(Charsets.US_ASCII), byteArrayOf(0x01)).copyOf(32)
+        sendKey = javax.crypto.spec.SecretKeySpec(s2c, "ChaCha20")
+    }
+
+    fun seal(payload: ByteArray): ByteArray {
+        val c = ctr++
+        val nonce = ByteArray(12)
+        for (i in 0 until 8) nonce[11 - i] = (c ushr (8 * i)).toByte()
+        val pt = ByteArray(2 + payload.size)
+        pt[0] = (payload.size ushr 8).toByte()
+        pt[1] = payload.size.toByte()
+        System.arraycopy(payload, 0, pt, 2, payload.size)
+        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, sendKey, javax.crypto.spec.IvParameterSpec(nonce))
+        val ivct = cipher.doFinal(pt)
+        val out = ByteArray(8 + ivct.size)
+        for (i in 0 until 8) out[i] = (c ushr (8 * (7 - i))).toByte()
+        System.arraycopy(ivct, 0, out, 8, ivct.size)
+        return out
     }
 
     private fun hmac(key: ByteArray, vararg parts: ByteArray): ByteArray {

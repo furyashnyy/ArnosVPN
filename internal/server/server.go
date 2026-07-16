@@ -29,9 +29,18 @@ type Server struct {
 	tun     *tunDevice
 	netcfg  *netConfig
 	upgrade websocket.Upgrader
+	replay  *replayGuard
 
 	mu      sync.RWMutex
 	clients map[uint32]*client // keyed by tunnel IPv4 as uint32
+}
+
+// maxFrameBytes bounds a single inbound WebSocket message so an authenticated
+// peer cannot force an unbounded allocation. A data frame is
+// counter(8) + AEAD( len(2) + packet(<=MTU) + pad(<=MaxPad) + tag(16) ); the
+// handshake hello is a small JSON control frame that fits comfortably below it.
+func (s *Server) maxFrameBytes() int64 {
+	return int64(s.cfg.MTU + protocol.MaxPad + 1024)
 }
 
 // client is one connected tunnel session.
@@ -69,6 +78,7 @@ func New(cfg *config.Config) (*Server, error) {
 		pool:    pool,
 		tun:     tun,
 		netcfg:  netcfg,
+		replay:  newReplayGuard(),
 		clients: make(map[uint32]*client),
 		upgrade: websocket.Upgrader{
 			ReadBufferSize:  64 * 1024,
@@ -136,6 +146,8 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return // Upgrade already wrote an error
 	}
+	// Bound every inbound message so a peer cannot force a huge allocation.
+	conn.SetReadLimit(s.maxFrameBytes())
 
 	c, err := s.handshake(conn)
 	if err != nil {
@@ -180,6 +192,12 @@ func (s *Server) handshake(conn *websocket.Conn) (*client, error) {
 	}
 	if !protocol.VerifyAuth(s.cfg.PSK, clientSalt, hello.TS, hello.Auth) {
 		return nil, errors.New("authentication failed")
+	}
+	// Anti-replay: a captured hello is valid for up to ±AuthWindow seconds.
+	// Reject any (salt, ts) pair already seen inside that window so a replayed
+	// hello cannot open a second session or churn the address pool.
+	if !s.replay.observe(hello.Salt, hello.TS) {
+		return nil, errors.New("replayed handshake")
 	}
 
 	serverSalt, err := protocol.RandBytes(protocol.SaltLen)

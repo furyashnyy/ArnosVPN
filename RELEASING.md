@@ -40,19 +40,56 @@ manually from the Actions tab (**release → Run workflow**).
 
 ## Signing
 
-The APK is signed with a **stable release key** committed at
-`apps/android/release.jks` (alias `arnos`). Because every build uses the same
-key, the app **updates in place**. Default passwords are baked in for a private,
-single-user setup; to use your own, set repo secrets and pass them as env:
+The APK is signed with a **stable release key that is never committed to the
+repository**. CI reads it from GitHub Actions **secrets**, decodes the keystore
+at build time, and signs with it; because every build uses the same key, the app
+**updates in place**. Local `assembleRelease` builds (no secrets) fall back to
+the debug key and are **not for distribution**.
 
-```
-ARNOS_KEYSTORE_PASSWORD, ARNOS_KEY_ALIAS, ARNOS_KEY_PASSWORD
+### One-time setup: generate a key and add the secrets
+
+Generate the keystore **on your own machine** (the private key must never pass
+through CI logs, chat, or the repo):
+
+```bash
+keytool -genkeypair -v \
+  -keystore arnos-release.jks -alias arnos \
+  -keyalg RSA -keysize 4096 -validity 10000 \
+  -storepass '<STRONG_STORE_PASSWORD>' -keypass '<STRONG_KEY_PASSWORD>' \
+  -dname "CN=ArnosVPN"
+base64 -w0 arnos-release.jks   # copy this into the ARNOS_KEYSTORE_BASE64 secret
 ```
 
-> **First install after switching keys:** older side-loaded builds were signed
-> with CI's throwaway debug key, so Android refuses to update over them
-> ("conflicts with another package"). **Uninstall the old ArnosVPN once**, then
-> install the new signed APK. All future updates install cleanly.
+Then add four **repository secrets** (Settings → Secrets and variables →
+Actions):
+
+| Secret | Value |
+|--------|-------|
+| `ARNOS_KEYSTORE_BASE64` | base64 of `arnos-release.jks` (from above) |
+| `ARNOS_KEYSTORE_PASSWORD` | the store password |
+| `ARNOS_KEY_ALIAS` | `arnos` |
+| `ARNOS_KEY_PASSWORD` | the key password |
+
+Keep `arnos-release.jks` and the passwords in a safe place (a password manager);
+losing them means you can no longer ship in-place updates. The `release`
+workflow **fails** if `ARNOS_KEYSTORE_BASE64` is unset, so a release is never
+published unsigned; the `android` workflow builds a debug-signed APK for testing
+but does not commit it back unless the secret is set.
+
+> **⚠️ The previously committed key is compromised.** Earlier history contained
+> `apps/android/release.jks` with a known password, so that key must be
+> considered public. Generate a **fresh** key as above, and purge the old one
+> from history (it is already removed from the working tree):
+>
+> ```bash
+> # from a fresh clone; this rewrites history — coordinate before force-pushing
+> git filter-repo --path apps/android/release.jks --invert-paths
+> git push --force-with-lease origin main
+> ```
+>
+> After switching keys, existing side-loaded installs are signed with the old
+> key. **Uninstall the old ArnosVPN once**, then install the new signed APK; all
+> future updates install cleanly.
 
 > **Play Protect** may warn "unknown developer" for any side-loaded app — tap
 > **Install anyway**. This is expected for apps not distributed via the Play

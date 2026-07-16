@@ -79,6 +79,31 @@ func TestSessionRejectsTampered(t *testing.T) {
 	}
 }
 
+func TestSessionRejectsReplay(t *testing.T) {
+	psk, _ := RandBytes(PSKLen)
+	cs, _ := RandBytes(SaltLen)
+	ss, _ := RandBytes(SaltLen)
+	srv, _ := DeriveSession(psk, cs, ss, true)
+	cli, _ := DeriveSession(psk, cs, ss, false)
+
+	f0 := cli.Seal([]byte("first"))
+	f1 := cli.Seal([]byte("second"))
+
+	if _, err := srv.Open(f0); err != nil {
+		t.Fatalf("open f0: %v", err)
+	}
+	if _, err := srv.Open(f1); err != nil {
+		t.Fatalf("open f1: %v", err)
+	}
+	// Replaying an already-accepted frame must be rejected.
+	if _, err := srv.Open(f0); err != ErrReplay {
+		t.Fatalf("replay of f0: got %v, want ErrReplay", err)
+	}
+	if _, err := srv.Open(f1); err != ErrReplay {
+		t.Fatalf("replay of f1: got %v, want ErrReplay", err)
+	}
+}
+
 func TestKeysAreDirectional(t *testing.T) {
 	// A session must not be able to open its own sealed frame; send and recv
 	// keys differ by direction.

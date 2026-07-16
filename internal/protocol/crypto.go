@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -57,7 +58,15 @@ type Session struct {
 	send    cipher.AEAD
 	recv    cipher.AEAD
 	sendCtr atomic.Uint64
-	recvCtr atomic.Uint64
+
+	// Receive-side anti-replay. The transport (WebSocket over TLS) is ordered
+	// and reliable, so an authenticated frame's counter must be strictly greater
+	// than any previously accepted one. A frame that repeats or rewinds a
+	// counter is a replay and is rejected. recvMu serializes the check so it is
+	// safe even if Open is ever called concurrently.
+	recvMu   sync.Mutex
+	recvMax  uint64
+	recvSeen bool
 }
 
 // DeriveSession builds the session keys from the PSK and both salts using
@@ -177,7 +186,14 @@ func (s *Session) sealRaw(payload, pad []byte) []byte {
 // ErrShortFrame is returned when a data frame is too small or malformed.
 var ErrShortFrame = errors.New("arnos: short data frame")
 
-// Open decrypts one data frame produced by Seal and strips the padding.
+// ErrReplay is returned when a frame reuses or rewinds the receive counter,
+// i.e. it is a replay of a previously accepted frame.
+var ErrReplay = errors.New("arnos: replayed frame")
+
+// Open decrypts one data frame produced by Seal and strips the padding. It
+// rejects replays: the counter is only advanced after the AEAD tag verifies, so
+// a forged frame cannot poison the replay state, and any authenticated frame
+// whose counter does not advance is dropped.
 func (s *Session) Open(frame []byte) ([]byte, error) {
 	if len(frame) < 8 {
 		return nil, ErrShortFrame
@@ -185,11 +201,21 @@ func (s *Session) Open(frame []byte) ([]byte, error) {
 	ctr := uint64(frame[0])<<56 | uint64(frame[1])<<48 | uint64(frame[2])<<40 |
 		uint64(frame[3])<<32 | uint64(frame[4])<<24 | uint64(frame[5])<<16 |
 		uint64(frame[6])<<8 | uint64(frame[7])
-	s.recvCtr.Store(ctr)
 	pt, err := s.recv.Open(nil, nonceFor(ctr), frame[8:], nil)
 	if err != nil {
 		return nil, err
 	}
+	// Anti-replay: only authenticated frames reach here. Require the counter to
+	// strictly advance (the ordered transport guarantees legitimate frames do).
+	s.recvMu.Lock()
+	if s.recvSeen && ctr <= s.recvMax {
+		s.recvMu.Unlock()
+		return nil, ErrReplay
+	}
+	s.recvMax = ctr
+	s.recvSeen = true
+	s.recvMu.Unlock()
+
 	if len(pt) < padHeaderLen {
 		return nil, ErrShortFrame
 	}
