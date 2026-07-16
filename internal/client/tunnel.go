@@ -120,6 +120,14 @@ func handshake(conn *websocket.Conn, psk []byte) (*Tunnel, error) {
 		return nil, err
 	}
 
+	// Bound inbound frames so a misbehaving server cannot force a huge
+	// allocation: counter(8) + AEAD( len(2) + packet(<=MTU) + pad + tag ).
+	mtu := welcome.MTU
+	if mtu <= 0 {
+		mtu = protocol.DefaultMTU
+	}
+	conn.SetReadLimit(int64(mtu + protocol.MaxPad + 1024))
+
 	_ = conn.SetReadDeadline(time.Time{})
 	_ = conn.SetWriteDeadline(time.Time{})
 	return &Tunnel{

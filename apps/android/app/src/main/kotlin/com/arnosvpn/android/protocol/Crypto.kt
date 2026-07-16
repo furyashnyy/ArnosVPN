@@ -83,6 +83,12 @@ class Session(private val sendKey: ByteArray, private val recvKey: ByteArray) {
     private val sendCtr = AtomicLong(0)
     private val rng = java.security.SecureRandom()
 
+    // Receive-side anti-replay. The transport (WebSocket over TLS) is ordered,
+    // so an authenticated frame's counter must strictly advance; a repeated or
+    // rewound counter is a replay and is rejected. Counters are unsigned.
+    private var recvMax = 0L
+    private var recvSeen = false
+
     /**
      * seal encrypts one IP packet into a wire frame with random padding:
      * frame = counter(8) || AEAD( realLen(2) || packet || pad ). The random pad
@@ -112,7 +118,13 @@ class Session(private val sendKey: ByteArray, private val recvKey: ByteArray) {
         return out
     }
 
-    /** open decrypts a frame produced by the server's Seal and strips padding. */
+    /**
+     * open decrypts a frame produced by the server's Seal and strips padding.
+     * It rejects replays: the counter is checked only after the AEAD tag
+     * verifies (so a forged frame cannot poison the replay state) and must
+     * strictly advance over any previously accepted frame.
+     */
+    @Synchronized
     fun open(frame: ByteArray): ByteArray {
         require(frame.size >= 8) { "short frame" }
         val ctr = readCounter(frame)
@@ -120,6 +132,13 @@ class Session(private val sendKey: ByteArray, private val recvKey: ByteArray) {
         val cipher = Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(recvKey, "ChaCha20"), IvParameterSpec(nonce))
         val pt = cipher.doFinal(frame, 8, frame.size - 8)
+        // Anti-replay: only authenticated frames reach here. Counters are
+        // unsigned, so compare with unsigned semantics.
+        if (recvSeen && java.lang.Long.compareUnsigned(ctr, recvMax) <= 0) {
+            throw IllegalStateException("replayed frame")
+        }
+        recvMax = ctr
+        recvSeen = true
         require(pt.size >= 2) { "short plaintext" }
         val realLen = ((pt[0].toInt() and 0xff) shl 8) or (pt[1].toInt() and 0xff)
         require(realLen <= pt.size - 2) { "bad length prefix" }
