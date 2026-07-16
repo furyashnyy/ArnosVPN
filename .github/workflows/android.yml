@@ -47,7 +47,20 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Assemble release APK
-        run: ./gradlew :app:assembleRelease --no-daemon
+        env:
+          ARNOS_KEYSTORE_BASE64: ${{ secrets.ARNOS_KEYSTORE_BASE64 }}
+          ARNOS_KEYSTORE_PASSWORD: ${{ secrets.ARNOS_KEYSTORE_PASSWORD }}
+          ARNOS_KEY_ALIAS: ${{ secrets.ARNOS_KEY_ALIAS }}
+          ARNOS_KEY_PASSWORD: ${{ secrets.ARNOS_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ARNOS_KEYSTORE_BASE64" ]; then
+            echo "$ARNOS_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export ARNOS_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+            echo "Signing with the configured release key."
+          else
+            echo "::warning::ARNOS_KEYSTORE_BASE64 not set — building a debug-signed APK (not for distribution). See RELEASING.md."
+          fi
+          ./gradlew :app:assembleRelease --no-daemon
 
       - name: Stage APK into apps/android/build
         run: |
@@ -63,7 +76,15 @@ jobs:
 
       - name: Commit APK back to the branch
         working-directory: .
+        env:
+          ARNOS_KEYSTORE_BASE64: ${{ secrets.ARNOS_KEYSTORE_BASE64 }}
         run: |
+          # Only publish the in-repo APK when it was signed with the real release
+          # key. A debug-signed APK must never be committed as the release build.
+          if [ -z "$ARNOS_KEYSTORE_BASE64" ]; then
+            echo "No release signing key configured — skipping commit-back of the APK."
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f apps/android/build/arnosvpn-release.apk

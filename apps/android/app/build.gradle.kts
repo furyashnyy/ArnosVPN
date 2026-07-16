@@ -13,6 +13,22 @@ val versionInfo = JsonSlurper()
 val appVersionName = versionInfo["version"] as String
 val appVersionCode = (versionInfo["versionCode"] as Number).toInt()
 
+// Release signing is driven entirely by environment variables supplied from CI
+// secrets — no keystore or password is ever committed. CI decodes the keystore
+// from the ARNOS_KEYSTORE_BASE64 secret and exports these before assembling.
+// When they are absent (local dev builds), the release build falls back to the
+// debug signing config so `assembleRelease` still works for testing; such an
+// APK is NOT for distribution.
+val releaseKeystore = System.getenv("ARNOS_KEYSTORE_FILE")
+val releaseStorePass = System.getenv("ARNOS_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ARNOS_KEY_ALIAS")
+val releaseKeyPass = System.getenv("ARNOS_KEY_PASSWORD")
+val haveReleaseSigning = !releaseKeystore.isNullOrBlank() &&
+    file(releaseKeystore).exists() &&
+    !releaseStorePass.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPass.isNullOrBlank()
+
 android {
     namespace = "com.arnosvpn.android"
     compileSdk = 35
@@ -26,15 +42,17 @@ android {
     }
 
     signingConfigs {
-        // Stable release key (apps/android/release.jks). Using one fixed key for
-        // every build is what lets the app UPDATE in place — CI's debug key is
-        // regenerated each run, which is why differently-signed APKs failed with
+        // The stable release key is supplied only via CI secrets (never committed).
+        // Using one fixed key for every build is what lets the app UPDATE in
+        // place; a per-run debug key would make differently-signed APKs fail with
         // "conflicts with another package".
-        create("release") {
-            storeFile = file("../release.jks")
-            storePassword = System.getenv("ARNOS_KEYSTORE_PASSWORD") ?: "arnosvpn"
-            keyAlias = System.getenv("ARNOS_KEY_ALIAS") ?: "arnos"
-            keyPassword = System.getenv("ARNOS_KEY_PASSWORD") ?: "arnosvpn"
+        if (haveReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystore!!)
+                storePassword = releaseStorePass!!
+                keyAlias = releaseKeyAlias!!
+                keyPassword = releaseKeyPass!!
+            }
         }
     }
 
@@ -45,7 +63,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("release")
+            // Real release key when CI provides it; otherwise the debug key so
+            // local `assembleRelease` still produces an installable (non-store) APK.
+            signingConfig = if (haveReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
