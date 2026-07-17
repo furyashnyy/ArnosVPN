@@ -22,11 +22,15 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
 	cfgPath := client.DefaultConfigPath()
+
+	// No arguments (e.g. a double-click on the executable) opens the graphical
+	// control panel — the desktop "app" — rather than printing CLI usage to a
+	// console window. The full CLI stays available for `arnosvpn-client <cmd>`.
+	if len(os.Args) < 2 {
+		cmdGUI(cfgPath, nil)
+		return
+	}
 
 	switch os.Args[1] {
 	case "list", "ls":

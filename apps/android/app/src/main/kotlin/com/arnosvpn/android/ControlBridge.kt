@@ -6,6 +6,8 @@ import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -33,6 +35,8 @@ class ControlBridge(
         fun onConnect(mode: String)
         fun onDisconnect()
         fun onScanQR()
+        /** onInstallApk launches the system package installer for a downloaded update. */
+        fun onInstallApk(file: File)
         /** resolve delivers a request's JSON envelope back to the WebView by id. */
         fun resolve(id: String, envelope: String)
     }
@@ -80,6 +84,9 @@ class ControlBridge(
             path == "/api/logs" -> JSONObject().put("lines", JSONArray(VpnRuntime.logs()))
             path == "/api/logs/clear" -> { VpnRuntime.clearLogs(); JSONObject() }
             path == "/api/apps" -> installedApps()
+            path == "/api/version" -> versionJson()
+            path == "/api/update/check" -> updateCheck()
+            path == "/api/update/apply" -> updateApply()
             else -> throw IllegalArgumentException("unknown endpoint $path")
         }
     }
@@ -143,6 +150,134 @@ class ControlBridge(
         return JSONObject().put("apps", arr)
     }
 
+    // --- in-app updates -------------------------------------------------------
+    // Updates are pulled from the project's public GitHub Releases: check the
+    // latest release, and on "Обновить" download the APK and hand it to the
+    // system installer. No token is needed because the repo is public.
+
+    private fun currentVersion(): String =
+        runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "" }
+            .getOrDefault("")
+
+    private fun versionJson(): JSONObject =
+        JSONObject().put("version", currentVersion()).put("platform", "android")
+
+    /** updateCheck reports whether a newer release than the installed one exists. */
+    private fun updateCheck(): JSONObject {
+        val rel = githubLatest()
+        val latest = rel.optString("tag_name").removePrefix("v")
+        val current = currentVersion()
+        var asset = ""
+        var assetName = ""
+        val assets = rel.optJSONArray("assets")
+        if (assets != null) {
+            for (i in 0 until assets.length()) {
+                val a = assets.optJSONObject(i) ?: continue
+                val name = a.optString("name")
+                if (name.endsWith(".apk")) {
+                    asset = a.optString("browser_download_url"); assetName = name; break
+                }
+            }
+        }
+        return JSONObject()
+            .put("current", current).put("latest", latest)
+            .put("hasUpdate", isNewer(latest, current))
+            .put("notes", rel.optString("body"))
+            .put("asset", asset).put("assetName", assetName)
+    }
+
+    /** updateApply downloads the newest APK and opens the system installer. */
+    private fun updateApply(): JSONObject {
+        val info = updateCheck()
+        if (!info.optBoolean("hasUpdate")) {
+            throw IllegalStateException("Уже установлена последняя версия (${info.optString("current")})")
+        }
+        val url = info.optString("asset")
+        if (url.isEmpty()) throw IllegalStateException("Для этой версии нет APK-файла")
+        val file = downloadApk(url)
+        actions.onInstallApk(file)
+        return JSONObject().put("ok", true)
+    }
+
+    private fun githubLatest(): JSONObject {
+        val url = URL("https://api.github.com/repos/$UPDATE_OWNER/$UPDATE_REPO/releases/latest")
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15000; readTimeout = 15000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "ArnosVPN-updater")
+        }
+        try {
+            when (conn.responseCode) {
+                HttpURLConnection.HTTP_OK -> {}
+                HttpURLConnection.HTTP_NOT_FOUND -> throw IllegalStateException("Релизы ещё не опубликованы")
+                else -> throw IllegalStateException("Проверка обновлений не удалась: ${conn.responseCode}")
+            }
+            val text = conn.inputStream.use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(8192); var total = 0
+                while (true) {
+                    val n = input.read(buf); if (n < 0) break
+                    total += n; if (total > 4 shl 20) break // 4 MiB cap for JSON
+                    out.write(buf, 0, n)
+                }
+                out.toString("UTF-8")
+            }
+            return JSONObject(text)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun downloadApk(rawUrl: String): File {
+        val dir = File(app.getExternalFilesDir(null), "updates").apply { mkdirs() }
+        val out = File(dir, "arnosvpn-update.apk")
+        val conn = (URL(rawUrl).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20000; readTimeout = 120000
+            instanceFollowRedirects = true // GitHub asset URLs redirect to a CDN
+            setRequestProperty("User-Agent", "ArnosVPN-updater")
+        }
+        try {
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                throw IllegalStateException("Скачивание не удалось: ${conn.responseCode}")
+            }
+            conn.inputStream.use { input ->
+                FileOutputStream(out).use { fos ->
+                    val buf = ByteArray(8192); var total = 0L
+                    while (true) {
+                        val n = input.read(buf); if (n < 0) break
+                        total += n
+                        if (total > 200L shl 20) throw IllegalStateException("Файл слишком большой")
+                        fos.write(buf, 0, n)
+                    }
+                }
+            }
+            return out
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** isNewer compares dot-separated numeric versions (1.10.0 > 1.9.0). */
+    private fun isNewer(a: String, b: String): Boolean {
+        val pa = parseVersion(a); val pb = parseVersion(b)
+        if (pa == null || pb == null) return a.isNotEmpty() && a != b
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val x = pa.getOrElse(i) { 0 }; val y = pb.getOrElse(i) { 0 }
+            if (x != y) return x > y
+        }
+        return false
+    }
+
+    private fun parseVersion(v: String): List<Int>? {
+        val s = v.trim().removePrefix("v")
+        if (s.isEmpty()) return null
+        return s.split(".").map { part ->
+            val cut = part.indexOfFirst { it == '-' || it == '+' }
+            val num = if (cut >= 0) part.substring(0, cut) else part
+            num.toIntOrNull() ?: return null
+        }
+    }
+
     /** subscribe fetches a URL of arnos:// URIs (optionally base64) and adds each. */
     private fun subscribe(rawUrl: String): JSONObject {
         val text = httpGet(rawUrl)
@@ -158,9 +293,18 @@ class ControlBridge(
     }
 
     private fun httpGet(rawUrl: String): String {
-        val conn = (URL(rawUrl).openConnection() as HttpURLConnection).apply {
+        val url = URL(rawUrl)
+        // Only fetch subscriptions over HTTP(S), and only from public hosts, so a
+        // crafted subscription URL cannot reach loopback/private addresses (SSRF).
+        val scheme = url.protocol.lowercase()
+        require(scheme == "http" || scheme == "https") { "subscription URL must be http(s)" }
+        for (addr in java.net.InetAddress.getAllByName(url.host)) {
+            require(isPublicAddress(addr)) { "refusing to connect to non-public address ${addr.hostAddress}" }
+        }
+        val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 15000
+            instanceFollowRedirects = false // redirects could bounce to internal hosts
             setRequestProperty("User-Agent", "ArnosVPN/android")
         }
         try {
@@ -180,6 +324,17 @@ class ControlBridge(
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** isPublicAddress rejects loopback, private, link-local and wildcard IPs. */
+    private fun isPublicAddress(addr: java.net.InetAddress): Boolean =
+        !(addr.isLoopbackAddress || addr.isSiteLocalAddress || addr.isLinkLocalAddress ||
+            addr.isAnyLocalAddress || addr.isMulticastAddress)
+
+    private companion object {
+        // Public GitHub repo the in-app updater reads releases from.
+        const val UPDATE_OWNER = "furyashnyy"
+        const val UPDATE_REPO = "ArnosVPN"
     }
 
     /** maybeBase64 decodes a whole-body base64 feed; null if already plain text. */

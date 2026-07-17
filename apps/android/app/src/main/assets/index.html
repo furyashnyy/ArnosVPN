@@ -112,16 +112,29 @@
   .empty{color:var(--muted);text-align:center;padding:50px 10px;font-size:14px}
 
   /* Connection panel */
-  .conn{display:flex;flex-direction:column;align-items:center;gap:18px;padding:26px 20px}
-  .power{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
-    background:radial-gradient(circle at 50% 35%,var(--panel),var(--panel2));border:1px solid var(--line);
-    box-shadow:0 0 0 12px color-mix(in srgb,var(--muted) 10%,transparent);transition:.3s}
-  .power svg{width:56px;height:56px;fill:none;stroke:var(--muted);stroke-width:2.4;transition:.3s}
-  .power.on{box-shadow:0 0 0 12px color-mix(in srgb,var(--green) 20%,transparent),0 0 42px color-mix(in srgb,var(--green) 40%,transparent)}
-  .power.on svg{stroke:var(--green)}
-  .power.connecting svg{stroke:var(--amber)}
-  .power.err svg{stroke:var(--red)}
-  .cstat{font-weight:800;font-size:18px}
+  .conn{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 20px}
+  /* Power button: a real progress ring around a power glyph — a state track that
+     fills green when connected and sweeps while connecting, not a generic glow. */
+  .power{width:168px;height:168px;border-radius:50%;display:grid;place-items:center;position:relative;
+    cursor:pointer;background:var(--panel);transition:transform .18s,box-shadow .35s;
+    box-shadow:0 10px 34px color-mix(in srgb,var(--muted) 22%,transparent)}
+  .power:active{transform:scale(.97)}
+  .power .ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+  .power .ring circle{fill:none;stroke-width:4;stroke-linecap:round}
+  .power .ring .track{stroke:var(--line)}
+  .power .ring .arc{stroke:transparent;stroke-dasharray:0 100;
+    transition:stroke .3s,stroke-dasharray .45s cubic-bezier(.4,0,.2,1)}
+  .power .glyph{width:52px;height:52px;fill:none;stroke:var(--muted);stroke-width:2.4;transition:stroke .3s}
+  .power.on{box-shadow:0 12px 40px color-mix(in srgb,var(--green) 34%,transparent)}
+  .power.on .glyph{stroke:var(--green)}
+  .power.on .arc{stroke:var(--green);stroke-dasharray:100 100}
+  .power.connecting .glyph{stroke:var(--amber)}
+  .power.connecting .arc{stroke:var(--amber);stroke-dasharray:26 100}
+  .power.connecting .ring{animation:sweep 1.05s linear infinite;transform-origin:50% 50%}
+  .power.err .glyph{stroke:var(--red)}
+  .power.err .arc{stroke:var(--red);stroke-dasharray:100 100;opacity:.45}
+  @keyframes sweep{to{transform:rotate(360deg)}}
+  .cstat{font-weight:800;font-size:19px;letter-spacing:-.3px}
   .cip{color:var(--muted);font-size:13px;min-height:18px}
   .seg{display:flex;gap:5px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:4px}
   .seg button{flex:1;padding:8px 16px;border-radius:9px;font-size:13px;font-weight:700;color:var(--muted)}
@@ -187,17 +200,28 @@
     .nav a svg{width:22px;height:22px}
     .main{padding:calc(16px + env(safe-area-inset-top)) 16px calc(86px + env(safe-area-inset-bottom))}
     .page-title{font-size:20px;margin-bottom:16px}
-    .srv-grid{display:flex;flex-direction:column;gap:14px}
-    .srv-grid>.card{order:-1;width:100%} /* connection panel: full-width hero above the list */
+    /* align-items:stretch is essential: the desktop grid sets align-items:start,
+       which in a flex column collapses the search + server list to their content
+       width and pins them left. Stretch makes every block fill the screen. */
+    .srv-grid{display:flex;flex-direction:column;gap:14px;align-items:stretch}
+    .srv-grid>*{width:100%;min-width:0}
+    .srv-grid>.card{order:-1} /* connection panel: full-width hero above the list */
     .conn{gap:16px;padding:34px 18px}
-    .power{width:152px;height:152px}
-    .power svg{width:58px;height:58px}
+    .power{width:172px;height:172px}
+    .power .glyph{width:56px;height:56px}
     .cstat{font-size:19px}
     /* stretch the action controls to fill the hero block */
     .conn>.seg,.conn>.btn,.conn>.mini,.conn-actions{width:100%}
     .conn>.btn{padding:13px 18px}
     .empty{padding:32px 10px}
-    .search{margin-bottom:0}
+    .search{margin-bottom:14px} /* breathing room between search and the server list */
+    /* Fields must flex to the screen, never overflow: text inputs grow/shrink,
+       dropdowns and rows wrap instead of pushing content off-screen. */
+    .row{flex-wrap:wrap}
+    .row .grow{flex:1 1 55%}
+    .row input.inp{flex:1 1 130px;min-width:0;width:auto}
+    .row .sel{flex:1 1 130px;min-width:0}
+    .field input,.field textarea{max-width:100%}
     .tiles{grid-template-columns:1fr 1fr;gap:12px}
     .tile{padding:16px}
     .tile .tv{font-size:22px}
@@ -355,7 +379,12 @@ async function pageServers(){
   const right=el("div","card");
   const conn=el("div","conn");
   const power=el("div","power");
-  power.innerHTML=`<svg viewBox="0 0 24 24"><path d="M12 3v9" stroke-linecap="round"/><path d="M6.4 6.4a8 8 0 1011.2 0" stroke-linecap="round"/></svg>`;
+  power.innerHTML=`
+    <svg class="ring" viewBox="0 0 100 100">
+      <circle class="track" cx="50" cy="50" r="46" pathLength="100"></circle>
+      <circle class="arc"   cx="50" cy="50" r="46" pathLength="100"></circle>
+    </svg>
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M12 3v9" stroke-linecap="round"/><path d="M6.4 6.4a8 8 0 1011.2 0" stroke-linecap="round"/></svg>`;
   const cstat=el("div","cstat","Отключено");
   const cip=el("div","cip","");
   conn.append(power,cstat,cip);
@@ -387,7 +416,10 @@ async function pageServers(){
     power.className="power"+(s.connected?" on":s.connecting?" connecting":s.error?" err":"");
     cstat.textContent=s.connecting?"Подключение…":s.connected?"Подключено":s.error?"Ошибка":"Отключено";
     cip.textContent=s.connected?("Выходной IP · "+s.assignedIP):(s.error||"");
-    mini.innerHTML=s.connected?`<span>↓ <b>${fmtBytes(s.rx)}</b></span><span>↑ <b>${fmtBytes(s.tx)}</b></span>`:"";
+    const dur=s.connected&&s.since?Math.floor(Date.now()/1000-s.since):0;
+    mini.innerHTML=s.connected
+      ?`<span>⏱ <b>${fmtDur(dur)}</b></span><span>↓ <b>${fmtBytes(s.rx)}</b></span><span>↑ <b>${fmtBytes(s.tx)}</b></span>`
+      :"";
     renderList();
   }
   paint();
@@ -478,6 +510,9 @@ async function pageSettings(){
   g3.append(row("Пинг","Проверить задержку до активного сервера",null,()=>pingOne(STATE.active)));
   m.append(g3);
 
+  m.append(el("div","group-label","Обновление"));
+  m.append(buildUpdateUI());
+
   m.append(el("div","group-label","Другое"));
   const g4=el("div","rows");
   g4.append(row("Логи",null,null,()=>location.hash="#/logs"));
@@ -540,16 +575,85 @@ async function pageLogs(){
   await load();
 }
 
-function pageAbout(){
+// buildUpdateUI returns the "check for updates / update now" card. Updates come
+// from the project's public GitHub Releases; the native/desktop side downloads
+// the right asset and either replaces the binary (desktop) or opens the system
+// installer (Android).
+function buildUpdateUI(){
+  const wrap=el("div");
+  const box=el("div","card tile");
+  const status=el("div","r-sub","Загрузка сведений о версии…");
+  const bar=el("div","conn-actions");bar.style.marginTop="14px";
+  const checkBtn=el("button","btn ghost sm","Проверить обновления");
+  const updBtn=el("button","btn sm","Обновить");updBtn.style.display="none";
+  let info=null;
+  (async()=>{try{const v=await api("/api/version");status.textContent=`Текущая версия: ${v.version||"?"}.`;}
+    catch(e){status.textContent="Не удалось определить версию.";}})();
+  checkBtn.onclick=async()=>{status.textContent="Проверка…";updBtn.style.display="none";
+    try{info=await api("/api/update/check");
+      if(info.hasUpdate){status.textContent=`Доступна версия ${info.latest} (у вас ${info.current}).`;
+        updBtn.textContent=`Обновить до ${info.latest}`;updBtn.style.display="";}
+      else status.textContent=`Установлена последняя версия (${info.current}).`;
+    }catch(e){status.textContent="Ошибка: "+e.message;}};
+  updBtn.onclick=async()=>{if(!info)return;updBtn.disabled=true;status.textContent="Загрузка обновления…";
+    try{const r=await api("/api/update/apply",{method:"POST"});
+      if(r&&r.restart){status.textContent="Обновление установлено. Перезапустите приложение.";toast("Обновлено — перезапустите");}
+      else status.textContent="Скачано. Подтвердите установку в системном окне.";
+    }catch(e){status.textContent="Ошибка: "+e.message;toast(e.message,true);}
+    finally{updBtn.disabled=false;}};
+  bar.append(checkBtn,updBtn);box.append(status,bar);wrap.append(box);return wrap;
+}
+
+// showUpdateModal pops the "an update is available" dialog with Отмена / Обновить.
+function showUpdateModal(info){
+  const modal=el("div","modal");
+  modal.append(el("h3",null,`Доступно обновление<span class="x">✕</span>`));
+  modal.querySelector(".x").onclick=closeModal;
+  const body=el("div");
+  body.innerHTML=`<div class="r-sub" style="font-size:14px;line-height:1.55">
+    Вышла новая версия ArnosVPN <b>${info.latest}</b> (у вас ${info.current||"?"}).<br>
+    Пожалуйста, обновите приложение.</div>`;
+  const status=el("div","r-sub");status.style.marginTop="10px";
+  modal.append(body,status);
+  const actions=el("div","modal-actions");
+  const cancel=el("button","btn ghost","Отмена");cancel.onclick=closeModal;
+  const upd=el("button","btn","Обновить");
+  upd.onclick=async()=>{upd.disabled=true;cancel.disabled=true;status.textContent="Загрузка обновления…";
+    try{const r=await api("/api/update/apply",{method:"POST"});
+      if(r&&r.restart){status.textContent="Обновление установлено. Перезапустите приложение.";toast("Обновлено — перезапустите");cancel.disabled=false;cancel.textContent="Закрыть";}
+      else{toast("Скачано — подтвердите установку");closeModal();}
+    }catch(e){status.textContent="Ошибка: "+e.message;toast(e.message,true);upd.disabled=false;cancel.disabled=false;}};
+  actions.append(cancel,upd);
+  modal.append(actions);
+  openModalEl(modal);
+}
+
+// checkUpdateOnStartup runs once per full app launch (a cold start reloads this
+// page; resuming from recents/tray keeps it, so it won't nag on every switch).
+async function checkUpdateOnStartup(){
+  try{const info=await api("/api/update/check");if(info&&info.hasUpdate)showUpdateModal(info);}
+  catch(e){/* offline or no releases yet — stay silent */}
+}
+
+async function pageAbout(){
   setActiveNav("about");
   const m=main();m.innerHTML="";m.append(el("h1","page-title","О программе"));
+  const plat=window.ArnosBridge?"Android":"десктоп";
+  let ver="?";try{const v=await api("/api/version");ver=v.version||"?";}catch(e){}
   const c=el("div","card tile");
-  const plat=window.ArnosBridge?"Android":"desktop";
   c.innerHTML=`<div class="tv" style="font-size:22px">ArnosVPN</div>
     <div class="r-sub" style="margin-top:8px">Собственный VPN-протокол с уникальным отпечатком трафика, маскировкой под HTTPS,
     режимами Proxy и TUN.</div>
-    <div class="mini" style="margin-top:16px"><span>Клиент: <b>${plat}</b></span><span>Протокол: <b>v2</b></span></div>`;
+    <div class="mini" style="margin-top:16px"><span>Клиент: <b>${plat}</b></span><span>Версия: <b>${ver}</b></span><span>Протокол: <b>v2</b></span></div>`;
   m.append(c);
+
+  m.append(el("div","group-label","Обновление"));
+  m.append(buildUpdateUI());
+
+  m.append(el("div","group-label","О разработке"));
+  const note=el("div","rows");
+  note.append(el("div","row",`<div class="grow"><div class="r-sub">Проект создан вручную с использованием ИИ-правок — совместная работа человека и ИИ.</div></div>`));
+  m.append(note);
 }
 
 // ---- Split tunneling: which apps use the VPN --------------------------------
@@ -655,7 +759,7 @@ window.addEventListener("hashchange",route);
 // live refresh
 setInterval(async()=>{await refreshState();if(serversPaint)serversPaint();if(statsPaint&&location.hash.includes("stats"))pageStats();},2000);
 
-(async()=>{await loadSettings();route();})();
+(async()=>{await loadSettings();route();checkUpdateOnStartup();})();
 </script>
 </body>
 </html>

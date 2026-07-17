@@ -8,6 +8,10 @@ arnos-state.json
 /data/
 *.png
 
+# Signing keystores must never be committed — supply them via CI secrets only.
+*.jks
+*.keystore
+
 # Android / Gradle transient build outputs
 apps/android/.gradle/
 apps/android/app/build/

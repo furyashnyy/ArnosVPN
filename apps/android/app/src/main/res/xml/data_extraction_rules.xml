@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup / device-transfer rules. ArnosVPN stores the server PSKs in
+  SharedPreferences, so both cloud backup and device-to-device transfer of app
+  data are disabled: the tunnel credential must never leave the device through a
+  backup channel. Provisioning is one QR scan, so there is nothing worth backing
+  up anyway.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

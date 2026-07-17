@@ -40,6 +40,10 @@ All handshake fields are carried in WebSocket **text** frames as JSON.
 - `auth`: `base64( HMAC-SHA256(PSK, "arnos-auth-v1" || salt || ascii(ts)) )`.
   Verified in constant time.
 
+The server also remembers each accepted `(salt, ts)` pair for the duration of
+the timestamp window and rejects a duplicate, so a hello captured on the wire
+cannot be replayed to open a second session even inside the ±90 s tolerance.
+
 ### 2. Server → Client: `welcome` (or `error`)
 
 ```json
@@ -82,6 +86,13 @@ frame     = counter(8, BE) || ChaCha20-Poly1305( plaintext )
 - The AEAD output is `ciphertext || 16-byte tag` (no additional data).
 - On decrypt, the peer reads `realLen` and takes exactly that many bytes as the
   packet, discarding the pad.
+
+**Anti-replay.** The transport is a single ordered, reliable stream (WebSocket
+over TLS), so a legitimate frame's counter always strictly exceeds the previous
+one. The receiver verifies the AEAD tag first, then requires the counter to
+advance over the highest counter it has already accepted; a frame that repeats
+or rewinds the counter is rejected as a replay. Because the check runs only on
+authenticated frames, a forged frame cannot poison the replay state.
 
 The server drops any decrypted packet whose IPv4 source address is not the
 address it assigned that client (anti-spoofing).

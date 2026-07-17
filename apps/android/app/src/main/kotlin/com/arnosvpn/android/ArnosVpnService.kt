@@ -387,6 +387,8 @@ class ArnosVpnService : VpnService() {
             Intent(ACTION_STATE).setPackage(packageName)
                 .putExtra(EXTRA_STATE, state).putExtra(EXTRA_DETAIL, detail),
         )
+        // Keep the Quick Settings tile in step with every transition.
+        VpnTileService.requestUpdate(this)
     }
 
     private fun notification(text: String): Notification {
@@ -395,6 +397,17 @@ class ArnosVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // A one-tap "Disconnect" straight from the notification, so the tunnel can
+        // be dropped without opening the app.
+        val stop = PendingIntent.getService(
+            this, 1, Intent(this, ArnosVpnService::class.java).setAction(ACTION_DISCONNECT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stopAction = Notification.Action.Builder(
+            android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_tile_shield),
+            getString(R.string.notif_disconnect),
+            stop,
+        ).build()
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
@@ -407,6 +420,7 @@ class ArnosVpnService : VpnService() {
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(open)
             .setOngoing(true)
+            .addAction(stopAction)
             .build()
     }
 

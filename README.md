@@ -25,6 +25,9 @@ everything, and reuses the TLS certificate your reverse proxy already manages.
 > never pushed to a registry. It is a privacy/self-hosting tool for your **own**
 > infrastructure, not a tool for evading detection on networks you don't control.
 
+> **How this is built:** ArnosVPN is developed by hand with the help of
+> AI-assisted edits — a collaboration between a human author and AI.
+
 ## Repository layout
 
 ```
@@ -278,10 +281,18 @@ vectors, so a change to one that breaks interop fails CI on both sides.
 
 ## Security notes
 
-- Authentication is a PSK-keyed HMAC with a ±90 s timestamp window; the inner
-  AEAD is keyed per connection and per direction.
+- Authentication is a PSK-keyed HMAC with a ±90 s timestamp window; the server
+  also remembers accepted handshakes in that window so a captured `hello` cannot
+  be replayed. The inner AEAD is keyed per connection and per direction.
+- Data frames carry a per-direction counter; the receiver rejects any frame
+  whose counter does not strictly advance (anti-replay), after the AEAD tag
+  verifies.
 - The server only forwards client packets whose source is the address it
   assigned (anti-spoofing) and NATs everything else.
+- Inbound WebSocket messages are size-bounded on both the server and the desktop
+  client so a peer cannot force an oversized allocation.
+- Subscription fetches accept only `http(s)` URLs and refuse to connect to
+  loopback/private addresses (SSRF hardening).
 - Treat the PSK as a shared secret: anyone holding it can connect. Rotate by
   setting a new `ARNOS_PSK` (or deleting the state file) and re-provisioning
   clients.

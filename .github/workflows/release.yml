@@ -59,7 +59,19 @@ jobs:
       - name: Build signed APK
         if: steps.check.outputs.exists == 'false'
         working-directory: apps/android
+        env:
+          ARNOS_KEYSTORE_BASE64: ${{ secrets.ARNOS_KEYSTORE_BASE64 }}
+          ARNOS_KEYSTORE_PASSWORD: ${{ secrets.ARNOS_KEYSTORE_PASSWORD }}
+          ARNOS_KEY_ALIAS: ${{ secrets.ARNOS_KEY_ALIAS }}
+          ARNOS_KEY_PASSWORD: ${{ secrets.ARNOS_KEY_PASSWORD }}
         run: |
+          # A published release MUST be signed with the stable release key.
+          if [ -z "$ARNOS_KEYSTORE_BASE64" ]; then
+            echo "::error::ARNOS_KEYSTORE_BASE64 secret is not set — refusing to cut an unsigned release. See RELEASING.md."
+            exit 1
+          fi
+          echo "$ARNOS_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export ARNOS_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
           yes | sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
           ./gradlew :app:assembleRelease --no-daemon
           mkdir -p ../../dist
@@ -78,9 +90,11 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: |
           mkdir -p dist
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          # Stamp the version into the binary so the in-app updater reports it.
+          LDFLAGS="-s -w -X arnosvpn/internal/client.Version=${{ steps.ver.outputs.version }}"
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/arnosvpn-client-windows-amd64.exe" ./cmd/arnosvpn-client
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/arnosvpn-client-linux-amd64" ./cmd/arnosvpn-client
           # Bundle wintun.dll for TUN mode (best effort; proxy/GUI mode needs none).
           set +e
