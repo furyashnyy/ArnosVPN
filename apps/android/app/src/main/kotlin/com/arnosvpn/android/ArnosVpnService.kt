@@ -387,6 +387,8 @@ class ArnosVpnService : VpnService() {
             Intent(ACTION_STATE).setPackage(packageName)
                 .putExtra(EXTRA_STATE, state).putExtra(EXTRA_DETAIL, detail),
         )
+        // Keep the Quick Settings tile in step with every transition.
+        VpnTileService.requestUpdate(this)
     }
 
     private fun notification(text: String): Notification {

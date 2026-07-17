@@ -11,4 +11,9 @@
     <string name="servers">Servers</string>
     <string name="status_disconnected">Disconnected</string>
     <string name="profile_none">No profile — scan a QR or paste a URI</string>
+
+    <!-- Quick Settings tile subtitles -->
+    <string name="tile_off">Отключено</string>
+    <string name="tile_connecting">Подключение…</string>
+    <string name="tile_connected">Подключено</string>
 </resources>

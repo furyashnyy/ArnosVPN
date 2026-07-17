@@ -27,6 +27,11 @@ import org.json.JSONObject
  */
 class MainActivity : AppCompatActivity(), ControlBridge.Actions {
 
+    companion object {
+        /** Sent by the Quick Settings tile when connecting needs VPN consent. */
+        const val ACTION_TILE_CONNECT = "com.arnosvpn.android.TILE_CONNECT"
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var store: ProfileStore
 
@@ -62,11 +67,19 @@ class MainActivity : AppCompatActivity(), ControlBridge.Actions {
         }
 
         handleDeepLink(intent)
+        handleTileIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLink(intent)
+        handleTileIntent(intent)
+    }
+
+    /** handleTileIntent completes a connect started from the Quick Settings tile,
+     *  showing the VPN consent dialog (which a tile can't raise on its own). */
+    private fun handleTileIntent(intent: Intent?) {
+        if (intent?.action == ACTION_TILE_CONNECT) connect()
     }
 
     override fun onBackPressed() {
