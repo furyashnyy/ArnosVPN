@@ -189,14 +189,20 @@ func (c *Controller) Ping(name string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	addr := net.JoinHostPort(profile.Host, fmt.Sprint(profile.Port))
+	// Measure a real VPN handshake (TLS + WebSocket upgrade + PSK auth +
+	// welcome), not just a TCP connect to the host. This reflects whether the
+	// tunnel actually works: a wrong port, a blocked upgrade or a bad PSK now
+	// shows as an error instead of a misleadingly-fast TCP round-trip.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, 6*time.Second)
+	tun, err := Connect(ctx, profile)
 	if err != nil {
 		return 0, err
 	}
-	_ = conn.Close()
-	return time.Since(start).Milliseconds(), nil
+	ms := time.Since(start).Milliseconds()
+	_ = tun.Close()
+	return ms, nil
 }
 
 // Connect brings up the active server. mode overrides the saved setting when

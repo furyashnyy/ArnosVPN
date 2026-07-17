@@ -3,14 +3,23 @@ package com.arnosvpn.android
 import android.content.Context
 import android.content.Intent
 import android.webkit.JavascriptInterface
+import com.arnosvpn.android.protocol.Crypto
+import com.arnosvpn.android.protocol.Fingerprint
+import com.arnosvpn.android.protocol.Profile
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.URL
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * ControlBridge is the Android counterpart of the desktop client's HTTP control
@@ -112,17 +121,74 @@ class ControlBridge(
             .put("servers", servers)
     }
 
-    /** ping measures TCP connect latency to a server, like the desktop client. */
+    /**
+     * ping measures a real VPN handshake round-trip (TLS + WebSocket upgrade +
+     * PSK auth + welcome), not a bare TCP connect. This reflects whether the
+     * tunnel actually works: a wrong port, a blocked upgrade or a bad PSK shows
+     * as an error instead of a misleadingly-fast TCP round-trip to the host.
+     */
     private fun ping(name: String): JSONObject {
         val p = store.servers().firstOrNull { it.name == name }?.profileOrNull()
             ?: return JSONObject().put("ok", false).put("error", "unknown server")
         return try {
-            val start = System.nanoTime()
-            Socket().use { it.connect(InetSocketAddress(p.host, p.port), 6000) }
-            val ms = (System.nanoTime() - start) / 1_000_000
-            JSONObject().put("ok", true).put("ms", ms)
+            JSONObject().put("ok", true).put("ms", handshakeRttMs(p))
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", (e.message ?: "unreachable"))
+        }
+    }
+
+    /** handshakeRttMs opens a one-shot WSS tunnel handshake and returns its
+     *  round-trip time in ms, then closes it. Throws on any failure. */
+    private fun handshakeRttMs(p: Profile): Long {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .build()
+        val clientSalt = Crypto.randomBytes(Crypto.SALT_LEN)
+        val ts = System.currentTimeMillis() / 1000
+        val hello = JSONObject()
+            .put("type", "hello").put("v", 2)
+            .put("salt", Crypto.b64(clientSalt)).put("ts", ts)
+            .put("auth", Crypto.computeAuth(p.psk, clientSalt, ts))
+            .put("name", "ping").toString()
+        val request = Request.Builder()
+            .url(p.wsUrl(Fingerprint.randomPath()))
+            .header("Origin", "https://${p.host}")
+            .header("User-Agent", Fingerprint.randomUserAgent())
+            .header("Sec-Fetch-Dest", "websocket")
+            .header("Sec-Fetch-Mode", "websocket")
+            .header("Sec-Fetch-Site", "same-origin")
+            .build()
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<Any?>(null) // Long ms on success, Throwable on failure
+        val start = System.nanoTime()
+        val ws = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, response: Response) { ws.send(hello) }
+            override fun onMessage(ws: WebSocket, text: String) {
+                when (JSONObject(text).optString("type")) {
+                    "welcome" -> {
+                        result.set((System.nanoTime() - start) / 1_000_000)
+                        latch.countDown(); ws.close(1000, "ping")
+                    }
+                    "error" -> {
+                        result.set(IllegalStateException(JSONObject(text).optString("msg", "rejected")))
+                        latch.countDown(); ws.close(1000, "ping")
+                    }
+                }
+            }
+            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                result.set(if (response != null) IllegalStateException("HTTP ${response.code}") else t)
+                latch.countDown()
+            }
+        })
+        try {
+            if (!latch.await(9, TimeUnit.SECONDS)) throw java.io.IOException("timeout")
+            val r = result.get()
+            if (r is Long) return r
+            throw (r as? Throwable ?: IllegalStateException("ping failed"))
+        } finally {
+            ws.cancel()
+            client.dispatcher.executorService.shutdown()
         }
     }
 
