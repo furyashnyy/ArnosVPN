@@ -15,11 +15,17 @@
     --text:#eef1f8; --muted:#8b93b0; --primary:#3b5bff; --primary2:#5b74ff;
     --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
   }
-  *{box-sizing:border-box}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{margin:0;font-family:-apple-system,Segoe UI,Roboto,system-ui,sans-serif;
-    background:var(--bg);color:var(--text);overflow:hidden}
+    background:var(--bg);color:var(--text);overflow:hidden;
+    -webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
+  /* Keep text selectable only in real text/input fields (per request). */
+  input,textarea,select,[contenteditable="true"]{
+    -webkit-user-select:text;-moz-user-select:text;user-select:text;-webkit-touch-callout:default}
   button,input,select{font:inherit;color:inherit}
+  /* No blue focus/selection outline on tap; keyboard focus still shows a ring. */
+  button:focus:not(:focus-visible){outline:none}
   button{cursor:pointer;border:none;background:none}
   .app{display:flex;height:100vh}
 
