@@ -26,6 +26,7 @@ type Controller struct {
 	wantConn   bool
 	mode       string
 	lastError  string
+	sysProxyOn bool // we set the OS proxy and must clear it on disconnect
 }
 
 // NewController loads the server list and settings from cfgPath.
@@ -256,6 +257,20 @@ func (c *Controller) Connect(mode string) error {
 	c.mu.Unlock()
 	guiLog.add("connected, assigned " + tunnel.LocalIP)
 
+	// In proxy mode, optionally point the OS proxy at our local HTTP proxy so
+	// browsers/apps route through the tunnel with no per-app setup (TUN mode
+	// already routes everything system-wide, so it needs no OS proxy).
+	if mode == "proxy" && c.cfg.Settings.SystemProxy && c.cfg.Settings.Http != "" {
+		if err := setSystemProxy(c.cfg.Settings.Http); err != nil {
+			guiLog.add("system proxy not set: " + err.Error())
+		} else {
+			c.mu.Lock()
+			c.sysProxyOn = true
+			c.mu.Unlock()
+			guiLog.add("system proxy → " + c.cfg.Settings.Http)
+		}
+	}
+
 	// Supervisor: run the tunnel and, on any unexpected drop, reconnect with
 	// backoff until the user disconnects. This is what keeps the VPN up instead
 	// of dying after a few minutes.
@@ -344,10 +359,20 @@ func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	cancel := c.cancel
 	tunnel := c.tunnel
+	sysOn := c.sysProxyOn
 	c.cancel = nil
 	c.tunnel = nil
 	c.connected = false
+	c.wantConn = false
+	c.sysProxyOn = false
 	c.mu.Unlock()
+	if sysOn {
+		if err := clearSystemProxy(); err != nil {
+			guiLog.add("system proxy not cleared: " + err.Error())
+		} else {
+			guiLog.add("system proxy cleared")
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}

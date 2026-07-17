@@ -473,7 +473,10 @@ function openAddModal(){
     try{
       if(type==="sub"){const r=await api("/api/subscribe",{method:"POST",body:JSON.stringify({url:v})});toast("Добавлено серверов: "+r.added);}
       else{await api("/api/add",{method:"POST",body:JSON.stringify({uri:v})});toast("Сервер добавлен");}
-      closeModal();await refreshState();serversPaint&&serversPaint();
+      // Fully re-render the servers page so the new entry shows immediately
+      // (relying on the possibly-stale serversPaint closure missed it until a
+      // manual tab switch).
+      closeModal();location.hash="#/servers";await pageServers();
     }catch(e){toast(e.message,true);}};
   actions.append(cancel,save);
   modal.append(typeField,valField,actions);
