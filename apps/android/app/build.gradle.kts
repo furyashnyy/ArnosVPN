@@ -22,12 +22,16 @@ val appVersionCode = (versionInfo["versionCode"] as Number).toInt()
 val releaseKeystore = System.getenv("ARNOS_KEYSTORE_FILE")
 val releaseStorePass = System.getenv("ARNOS_KEYSTORE_PASSWORD")
 val releaseKeyAlias = System.getenv("ARNOS_KEY_ALIAS")
-val releaseKeyPass = System.getenv("ARNOS_KEY_PASSWORD")
+// The release keystore is PKCS12, where the private key is protected by the
+// store password itself (a separate key password isn't supported). We therefore
+// always sign with the store password and ignore any ARNOS_KEY_PASSWORD secret,
+// which removes a common footgun: the two password secrets drifting apart and
+// breaking signing ("keystore password was incorrect" / "final block not
+// properly padded"). Only ARNOS_KEYSTORE_PASSWORD needs to be correct.
 val haveReleaseSigning = !releaseKeystore.isNullOrBlank() &&
     file(releaseKeystore).exists() &&
     !releaseStorePass.isNullOrBlank() &&
-    !releaseKeyAlias.isNullOrBlank() &&
-    !releaseKeyPass.isNullOrBlank()
+    !releaseKeyAlias.isNullOrBlank()
 
 android {
     namespace = "com.arnosvpn.android"
@@ -51,7 +55,7 @@ android {
                 storeFile = file(releaseKeystore!!)
                 storePassword = releaseStorePass!!
                 keyAlias = releaseKeyAlias!!
-                keyPassword = releaseKeyPass!!
+                keyPassword = releaseStorePass!! // PKCS12: key password == store password
             }
         }
     }
