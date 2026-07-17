@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -10,6 +11,14 @@ import (
 
 	"arnosvpn/internal/provision"
 )
+
+// setupError marks a failure that reconnecting cannot fix — e.g. the TUN adapter
+// can't be created (missing wintun.dll or not run as Administrator). The
+// supervisor reports it and stops instead of looping "connecting" forever.
+type setupError struct{ err error }
+
+func (e *setupError) Error() string { return e.err.Error() }
+func (e *setupError) Unwrap() error { return e.err }
 
 // Controller manages the tunnel lifecycle for the GUI: it holds the server
 // list and settings, and can connect/disconnect on demand, exposing a snapshot
@@ -285,6 +294,21 @@ func (c *Controller) supervise(ctx context.Context, profile provision.Profile, m
 	for {
 		runErr := runMode(ctx, tunnel, mode, socks, httpAddr)
 		_ = tunnel.Close()
+
+		// A setup failure (e.g. TUN adapter can't be created) won't recover on
+		// retry — surface it and stop instead of looping "connecting" forever.
+		var se *setupError
+		if errors.As(runErr, &se) {
+			c.mu.Lock()
+			c.connected = false
+			c.connecting = false
+			c.wantConn = false
+			c.tunnel = nil
+			c.lastError = runErr.Error()
+			c.mu.Unlock()
+			guiLog.add("stopped: " + runErr.Error())
+			return
+		}
 
 		c.mu.Lock()
 		c.connected = false

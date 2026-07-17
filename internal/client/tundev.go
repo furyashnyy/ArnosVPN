@@ -19,14 +19,16 @@ import (
 func RunTUN(ctx context.Context, t *Tunnel, serverIP, ifName string) error {
 	dev, err := tun.CreateTUN(ifName, t.MTU)
 	if err != nil {
-		return fmt.Errorf("create TUN (need admin/root; or use --mode proxy): %w", err)
+		// Won't recover on retry: needs elevation and wintun.dll (Windows).
+		return &setupError{fmt.Errorf("TUN mode needs Administrator and wintun.dll — "+
+			"run the app as administrator with wintun.dll next to it, or switch to Proxy mode: %w", err)}
 	}
 	defer dev.Close()
 
 	name, _ := dev.Name()
 	cleanup, err := configureTUN(name, t.LocalIP, t.Mask, t.DNS, serverIP)
 	if err != nil {
-		return fmt.Errorf("configure %s: %w", name, err)
+		return &setupError{fmt.Errorf("configure %s: %w", name, err)}
 	}
 	defer cleanup()
 	log.Printf("TUN up: dev=%s ip=%s/%d — all traffic exits via the server", name, t.LocalIP, t.Mask)
