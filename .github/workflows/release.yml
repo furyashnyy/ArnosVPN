@@ -92,7 +92,9 @@ jobs:
           mkdir -p dist
           # Stamp the version into the binary so the in-app updater reports it.
           LDFLAGS="-s -w -X arnosvpn/internal/client.Version=${{ steps.ver.outputs.version }}"
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
+          # -H windowsgui links the Windows client as a GUI app: a double-click
+          # opens the native WebView2 window with no console flash.
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS -H windowsgui" \
             -o "dist/arnosvpn-client-windows-amd64.exe" ./cmd/arnosvpn-client
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/arnosvpn-client-linux-amd64" ./cmd/arnosvpn-client

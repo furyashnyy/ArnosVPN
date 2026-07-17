@@ -150,6 +150,10 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 	log.Printf("ArnosVPN control panel: %s", url)
 
 	srv := &http.Server{Handler: mux}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(ln) }()
+
+	// Shut down when cancelled by a signal (Ctrl-C) from the caller.
 	go func() {
 		<-ctx.Done()
 		ctrl.Disconnect()
@@ -158,12 +162,19 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	go openBrowser(url)
-	err = srv.Serve(ln)
-	if err == http.ErrServerClosed {
-		return nil
+	// Present the UI as a native window (Windows: Edge WebView2) or the default
+	// browser elsewhere. Blocks until the window/app is closed.
+	openWindow(ctx, url, "ArnosVPN")
+
+	// Window closed: tear the tunnel down and stop the local server.
+	ctrl.Disconnect()
+	shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
+	if err := <-serveErr; err != nil && err != http.ErrServerClosed {
+		return err
 	}
-	return err
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

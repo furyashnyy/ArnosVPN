@@ -26,11 +26,14 @@ func main() {
 
 	// No arguments (e.g. a double-click on the executable) opens the graphical
 	// control panel — the desktop "app" — rather than printing CLI usage to a
-	// console window. The full CLI stays available for `arnosvpn-client <cmd>`.
+	// console window. The full CLI stays available for `arnosvpn-client <cmd>`;
+	// on Windows the GUI-linked binary reattaches to the parent console so those
+	// commands still print.
 	if len(os.Args) < 2 {
 		cmdGUI(cfgPath, nil)
 		return
 	}
+	attachParentConsole()
 
 	switch os.Args[1] {
 	case "list", "ls":
@@ -207,7 +210,7 @@ func cmdGUI(path string, args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Println("opening ArnosVPN control panel in your browser…")
+	fmt.Println("opening the ArnosVPN control panel…")
 	if err := client.RunGUI(ctx, path, *addr); err != nil {
 		fatal(err)
 	}

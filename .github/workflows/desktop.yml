@@ -44,8 +44,11 @@ jobs:
           out="dist/arnosvpn-client-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
           mkdir -p dist
           VER=$(jq -r .version version.json)
-          go build -trimpath -ldflags="-s -w -X arnosvpn/internal/client.Version=$VER" \
-            -o "$out" ./cmd/arnosvpn-client
+          LDFLAGS="-s -w -X arnosvpn/internal/client.Version=$VER"
+          # Windows: link as a GUI app so a double-click opens the native
+          # WebView2 window with no console flash.
+          if [ "${{ matrix.goos }}" = "windows" ]; then LDFLAGS="$LDFLAGS -H windowsgui"; fi
+          go build -trimpath -ldflags="$LDFLAGS" -o "$out" ./cmd/arnosvpn-client
           ls -l "$out"
 
       - name: Bundle wintun.dll (Windows, for TUN mode; best effort)
