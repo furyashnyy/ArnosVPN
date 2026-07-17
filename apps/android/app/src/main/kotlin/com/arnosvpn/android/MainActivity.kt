@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.ImageDecoder
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +16,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.arnosvpn.android.databinding.ActivityMainBinding
 import com.arnosvpn.android.protocol.Profile
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONObject
@@ -43,6 +51,13 @@ class MainActivity : AppCompatActivity(), ControlBridge.Actions {
 
     private val scan = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { onProfileUri(it) }
+    }
+
+    /** Picks an image and decodes an ArnosVPN QR from it (no camera needed). */
+    private val pickQrImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val text = decodeQrFromUri(uri)
+        if (text != null) onProfileUri(text) else toast("QR-код не распознан на изображении")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -96,7 +111,47 @@ class MainActivity : AppCompatActivity(), ControlBridge.Actions {
     }
 
     override fun onScanQR() = runOnUiThread {
-        scan.launch(ScanOptions().setBeepEnabled(false).setPrompt("Scan the ArnosVPN QR"))
+        scan.launch(
+            ScanOptions()
+                .setBeepEnabled(false)
+                .setPrompt("Наведите на ArnosVPN QR")
+                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                // Upright (portrait) scanner instead of the default landscape one.
+                .setOrientationLocked(false)
+                .setCaptureActivity(PortraitCaptureActivity::class.java),
+        )
+    }
+
+    override fun onScanQRFromFile() = runOnUiThread { pickQrImage.launch("image/*") }
+
+    /** decodeQrFromUri loads a picked image and reads a QR code out of it. */
+    private fun decodeQrFromUri(uri: Uri): String? {
+        val bmp = runCatching {
+            val src = ImageDecoder.createSource(contentResolver, uri)
+            ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
+                // ZXing needs to read pixels, so force a software (non-hardware)
+                // bitmap, and cap huge photos to keep decoding fast and memory-safe.
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = false
+                val longest = maxOf(info.size.width, info.size.height)
+                val max = 2000
+                if (longest > max) {
+                    val s = max.toFloat() / longest
+                    decoder.setTargetSize((info.size.width * s).toInt(), (info.size.height * s).toInt())
+                }
+            }
+        }.getOrNull() ?: return null
+
+        val w = bmp.width
+        val h = bmp.height
+        val pixels = IntArray(w * h)
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        val bitmap = BinaryBitmap(HybridBinarizer(RGBLuminanceSource(w, h, pixels)))
+        val hints = mapOf(
+            DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+            DecodeHintType.TRY_HARDER to true,
+        )
+        return runCatching { MultiFormatReader().decode(bitmap, hints).text }.getOrNull()
     }
 
     override fun onInstallApk(file: java.io.File) = runOnUiThread {

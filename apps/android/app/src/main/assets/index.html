@@ -453,9 +453,14 @@ function openAddModal(){
   const ta=el("textarea");ta.rows=3;ta.placeholder="arnos://connect?host=…&psk=…";valField.append(ta);
 
   const actions=el("div","modal-actions");
-  // On Android, offer QR scanning as a first-class way to provision.
-  if(window.ArnosBridge){const qr=el("button","btn ghost qr-scan","Сканировать QR");
-    qr.onclick=()=>{try{window.ArnosBridge.scanQR();}catch(e){}closeModal();};actions.append(qr);}
+  // On Android, offer QR scanning (camera or from an image file) to provision.
+  if(window.ArnosBridge){
+    const qr=el("button","btn ghost qr-scan","Сканировать QR");
+    qr.onclick=()=>{try{window.ArnosBridge.scanQR();}catch(e){}closeModal();};
+    const qrf=el("button","btn ghost qr-scan","QR из файла");
+    qrf.onclick=()=>{try{window.ArnosBridge.scanQRFromFile();}catch(e){}closeModal();};
+    actions.append(qr,qrf);
+  }
   const cancel=el("button","btn ghost","Отмена");cancel.onclick=closeModal;
   const save=el("button","btn","Сохранить");
   save.onclick=async()=>{const v=ta.value.trim();if(!v){toast("Пусто",true);return;}
