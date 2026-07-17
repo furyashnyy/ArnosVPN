@@ -16,4 +16,7 @@
     <string name="tile_off">Отключено</string>
     <string name="tile_connecting">Подключение…</string>
     <string name="tile_connected">Подключено</string>
+
+    <!-- Foreground-notification action -->
+    <string name="notif_disconnect">Отключить</string>
 </resources>
