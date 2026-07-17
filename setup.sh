@@ -139,7 +139,7 @@ fi
 
 # --- dependencies -----------------------------------------------------------
 install_deps() {
-  local pkgs_common="iptables iproute2 ca-certificates curl"
+  local pkgs_common="iptables iproute2 ca-certificates curl git"
   if   command -v apt-get >/dev/null 2>&1; then
     log "installing dependencies with apt"
     DEBIAN_FRONTEND=noninteractive apt-get update -qq
@@ -149,14 +149,34 @@ install_deps() {
   elif command -v yum >/dev/null 2>&1; then
     log "installing dependencies with yum"; yum install -y -q $pkgs_common wget >/dev/null
   elif command -v apk >/dev/null 2>&1; then
-    log "installing dependencies with apk"; apk add --no-cache iptables ip6tables iproute2 ca-certificates curl wget >/dev/null
+    log "installing dependencies with apk"; apk add --no-cache iptables ip6tables iproute2 ca-certificates curl git wget >/dev/null
   elif command -v pacman >/dev/null 2>&1; then
-    log "installing dependencies with pacman"; pacman -Sy --noconfirm --needed iptables iproute2 ca-certificates curl wget >/dev/null
+    log "installing dependencies with pacman"; pacman -Sy --noconfirm --needed iptables iproute2 ca-certificates curl git wget >/dev/null
   else
-    warn "unknown package manager — ensure iptables, iproute2 and ca-certificates are installed"
+    warn "unknown package manager — ensure iptables, iproute2, ca-certificates and git are installed"
   fi
 }
 install_deps
+
+# --- source tree ------------------------------------------------------------
+# setup.sh builds the server from source, so it needs the repository next to it
+# (go.mod + ./cmd/...). When it is run outside a full checkout — e.g. only the
+# script was downloaded, or it was piped from curl — fetch the source into a temp
+# dir and build from there. Override the source with ARNOS_REPO_URL (and, for a
+# private repo, embed a token, or clone it yourself and run from inside it).
+if [ ! -f "$REPO_DIR/go.mod" ]; then
+  REPO_URL="${ARNOS_REPO_URL:-https://github.com/furyashnyy/ArnosVPN.git}"
+  BRANCH="${ARNOS_REPO_BRANCH:-main}"
+  log "no source tree next to setup.sh — cloning ${REPO_URL} (${BRANCH})"
+  command -v git >/dev/null 2>&1 || die "git is required to fetch the source; install git and re-run"
+  SRC_DIR="$(mktemp -d)"
+  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$SRC_DIR" >/dev/null 2>&1 \
+    || git clone --depth 1 "$REPO_URL" "$SRC_DIR" >/dev/null 2>&1 \
+    || die "failed to clone ${REPO_URL}; for a private repo set ARNOS_REPO_URL with a token, or clone it yourself and run ./setup.sh from inside"
+  [ -f "$SRC_DIR/go.mod" ] || die "cloned ${REPO_URL} but it has no go.mod — wrong repository?"
+  REPO_DIR="$SRC_DIR"
+  CLEANUP_SRC="$SRC_DIR"
+fi
 
 # --- Go toolchain (only needed to build) ------------------------------------
 have_go() {
@@ -194,6 +214,7 @@ mv -f "$BUILD_DIR/arnosvpnctl" "$PREFIX/arnosvpnctl"
 chmod 755 "$PREFIX/arnosvpn-server" "$PREFIX/arnosvpnctl"
 rm -rf "$BUILD_DIR"
 [ -n "${CLEANUP_GO:-}" ] && rm -rf "$CLEANUP_GO"
+[ -n "${CLEANUP_SRC:-}" ] && rm -rf "$CLEANUP_SRC"
 
 # --- system configuration ---------------------------------------------------
 log "enabling IP forwarding and the TUN module"
