@@ -27,6 +27,11 @@ import org.json.JSONObject
  */
 class MainActivity : AppCompatActivity(), ControlBridge.Actions {
 
+    companion object {
+        /** Sent by the Quick Settings tile when connecting needs VPN consent. */
+        const val ACTION_TILE_CONNECT = "com.arnosvpn.android.TILE_CONNECT"
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var store: ProfileStore
 
@@ -62,11 +67,19 @@ class MainActivity : AppCompatActivity(), ControlBridge.Actions {
         }
 
         handleDeepLink(intent)
+        handleTileIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLink(intent)
+        handleTileIntent(intent)
+    }
+
+    /** handleTileIntent completes a connect started from the Quick Settings tile,
+     *  showing the VPN consent dialog (which a tile can't raise on its own). */
+    private fun handleTileIntent(intent: Intent?) {
+        if (intent?.action == ACTION_TILE_CONNECT) connect()
     }
 
     override fun onBackPressed() {
@@ -84,6 +97,21 @@ class MainActivity : AppCompatActivity(), ControlBridge.Actions {
 
     override fun onScanQR() = runOnUiThread {
         scan.launch(ScanOptions().setBeepEnabled(false).setPrompt("Scan the ArnosVPN QR"))
+    }
+
+    override fun onInstallApk(file: java.io.File) = runOnUiThread {
+        // Hand the downloaded APK to the system installer via a content:// URI
+        // (a file:// URI would throw FileUriExposedException on modern Android).
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (e: Exception) {
+            toast("Не удалось открыть установщик: ${e.message}")
+        }
     }
 
     override fun resolve(id: String, envelope: String) = runOnUiThread {

@@ -43,7 +43,9 @@ jobs:
         run: |
           out="dist/arnosvpn-client-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/arnosvpn-client
+          VER=$(jq -r .version version.json)
+          go build -trimpath -ldflags="-s -w -X arnosvpn/internal/client.Version=$VER" \
+            -o "$out" ./cmd/arnosvpn-client
           ls -l "$out"
 
       - name: Bundle wintun.dll (Windows, for TUN mode; best effort)

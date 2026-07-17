@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shares the downloaded update APK (app-private external files) with the
+     system package installer via a content:// URI. -->
+<paths>
+    <external-files-path name="updates" path="updates/" />
+</paths>

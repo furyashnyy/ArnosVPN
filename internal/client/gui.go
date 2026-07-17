@@ -27,6 +27,7 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 	if err != nil {
 		return err
 	}
+	CleanupOldBinary() // clear any leftover ".old" from a prior Windows self-update
 	// Mirror log output into the ring buffer so the Logs page can show it.
 	log.SetOutput(io.MultiWriter(os.Stderr, guiLog))
 
@@ -121,6 +122,24 @@ func RunGUI(ctx context.Context, cfgPath, addr string) error {
 	mux.HandleFunc("/api/logs/clear", func(w http.ResponseWriter, r *http.Request) {
 		guiLog.clear()
 		writeJSON(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"version": Version, "platform": runtime.GOOS})
+	})
+	mux.HandleFunc("/api/update/check", func(w http.ResponseWriter, r *http.Request) {
+		info, err := CheckUpdate(r.Context())
+		if err != nil {
+			httpErr(w, err.Error())
+			return
+		}
+		writeJSON(w, info)
+	})
+	mux.HandleFunc("/api/update/apply", func(w http.ResponseWriter, r *http.Request) {
+		if err := ApplyUpdate(r.Context()); err != nil {
+			httpErr(w, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "restart": true})
 	})
 
 	ln, err := net.Listen("tcp", addr)

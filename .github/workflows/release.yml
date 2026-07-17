@@ -90,9 +90,11 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: |
           mkdir -p dist
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          # Stamp the version into the binary so the in-app updater reports it.
+          LDFLAGS="-s -w -X arnosvpn/internal/client.Version=${{ steps.ver.outputs.version }}"
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/arnosvpn-client-windows-amd64.exe" ./cmd/arnosvpn-client
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
             -o "dist/arnosvpn-client-linux-amd64" ./cmd/arnosvpn-client
           # Bundle wintun.dll for TUN mode (best effort; proxy/GUI mode needs none).
           set +e
