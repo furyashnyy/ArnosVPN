@@ -200,8 +200,12 @@
     .nav a svg{width:22px;height:22px}
     .main{padding:calc(16px + env(safe-area-inset-top)) 16px calc(86px + env(safe-area-inset-bottom))}
     .page-title{font-size:20px;margin-bottom:16px}
-    .srv-grid{display:flex;flex-direction:column;gap:14px}
-    .srv-grid>.card{order:-1;width:100%} /* connection panel: full-width hero above the list */
+    /* align-items:stretch is essential: the desktop grid sets align-items:start,
+       which in a flex column collapses the search + server list to their content
+       width and pins them left. Stretch makes every block fill the screen. */
+    .srv-grid{display:flex;flex-direction:column;gap:14px;align-items:stretch}
+    .srv-grid>*{width:100%;min-width:0}
+    .srv-grid>.card{order:-1} /* connection panel: full-width hero above the list */
     .conn{gap:16px;padding:34px 18px}
     .power{width:172px;height:172px}
     .power .glyph{width:56px;height:56px}
@@ -211,6 +215,13 @@
     .conn>.btn{padding:13px 18px}
     .empty{padding:32px 10px}
     .search{margin-bottom:0}
+    /* Fields must flex to the screen, never overflow: text inputs grow/shrink,
+       dropdowns and rows wrap instead of pushing content off-screen. */
+    .row{flex-wrap:wrap}
+    .row .grow{flex:1 1 55%}
+    .row input.inp{flex:1 1 130px;min-width:0;width:auto}
+    .row .sel{flex:1 1 130px;min-width:0}
+    .field input,.field textarea{max-width:100%}
     .tiles{grid-template-columns:1fr 1fr;gap:12px}
     .tile{padding:16px}
     .tile .tv{font-size:22px}
