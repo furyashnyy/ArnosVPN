@@ -20,7 +20,7 @@ import (
 //	go build -ldflags "-X arnosvpn/internal/client.Version=1.2.0"
 //
 // so a published binary always reports the version it was cut from.
-var Version = "1.3.0"
+var Version = "1.4.0"
 
 // The update feed is the project's public GitHub Releases. Because the repo is
 // public, no token is needed — the client just reads the latest release and
