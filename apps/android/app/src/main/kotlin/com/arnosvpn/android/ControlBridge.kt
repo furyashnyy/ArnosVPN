@@ -35,6 +35,8 @@ class ControlBridge(
         fun onConnect(mode: String)
         fun onDisconnect()
         fun onScanQR()
+        /** onScanQRFromFile picks an image and decodes an ArnosVPN QR from it. */
+        fun onScanQRFromFile()
         /** onInstallApk launches the system package installer for a downloaded update. */
         fun onInstallApk(file: File)
         /** resolve delivers a request's JSON envelope back to the WebView by id. */
@@ -67,6 +69,9 @@ class ControlBridge(
 
     @JavascriptInterface
     fun scanQR() = actions.onScanQR()
+
+    @JavascriptInterface
+    fun scanQRFromFile() = actions.onScanQRFromFile()
 
     private fun route(method: String, path: String, body: String): Any {
         val req = if (body.isBlank()) JSONObject() else JSONObject(body)
