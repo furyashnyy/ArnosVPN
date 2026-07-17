@@ -25,6 +25,9 @@ everything, and reuses the TLS certificate your reverse proxy already manages.
 > never pushed to a registry. It is a privacy/self-hosting tool for your **own**
 > infrastructure, not a tool for evading detection on networks you don't control.
 
+> **How this is built:** ArnosVPN is developed by hand with the help of
+> AI-assisted edits — a collaboration between a human author and AI.
+
 ## Repository layout
 
 ```

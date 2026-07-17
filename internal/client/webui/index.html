@@ -214,7 +214,7 @@
     .conn>.seg,.conn>.btn,.conn>.mini,.conn-actions{width:100%}
     .conn>.btn{padding:13px 18px}
     .empty{padding:32px 10px}
-    .search{margin-bottom:0}
+    .search{margin-bottom:14px} /* breathing room between search and the server list */
     /* Fields must flex to the screen, never overflow: text inputs grow/shrink,
        dropdowns and rows wrap instead of pushing content off-screen. */
     .row{flex-wrap:wrap}
@@ -510,6 +510,9 @@ async function pageSettings(){
   g3.append(row("Пинг","Проверить задержку до активного сервера",null,()=>pingOne(STATE.active)));
   m.append(g3);
 
+  m.append(el("div","group-label","Обновление"));
+  m.append(buildUpdateUI());
+
   m.append(el("div","group-label","Другое"));
   const g4=el("div","rows");
   g4.append(row("Логи",null,null,()=>location.hash="#/logs"));
@@ -572,16 +575,54 @@ async function pageLogs(){
   await load();
 }
 
-function pageAbout(){
+// buildUpdateUI returns the "check for updates / update now" card. Updates come
+// from the project's public GitHub Releases; the native/desktop side downloads
+// the right asset and either replaces the binary (desktop) or opens the system
+// installer (Android).
+function buildUpdateUI(){
+  const wrap=el("div");
+  const box=el("div","card tile");
+  const status=el("div","r-sub","Загрузка сведений о версии…");
+  const bar=el("div","conn-actions");bar.style.marginTop="14px";
+  const checkBtn=el("button","btn ghost sm","Проверить обновления");
+  const updBtn=el("button","btn sm","Обновить");updBtn.style.display="none";
+  let info=null;
+  (async()=>{try{const v=await api("/api/version");status.textContent=`Текущая версия: ${v.version||"?"}.`;}
+    catch(e){status.textContent="Не удалось определить версию.";}})();
+  checkBtn.onclick=async()=>{status.textContent="Проверка…";updBtn.style.display="none";
+    try{info=await api("/api/update/check");
+      if(info.hasUpdate){status.textContent=`Доступна версия ${info.latest} (у вас ${info.current}).`;
+        updBtn.textContent=`Обновить до ${info.latest}`;updBtn.style.display="";}
+      else status.textContent=`Установлена последняя версия (${info.current}).`;
+    }catch(e){status.textContent="Ошибка: "+e.message;}};
+  updBtn.onclick=async()=>{if(!info)return;updBtn.disabled=true;status.textContent="Загрузка обновления…";
+    try{const r=await api("/api/update/apply",{method:"POST"});
+      if(r&&r.restart){status.textContent="Обновление установлено. Перезапустите приложение.";toast("Обновлено — перезапустите");}
+      else status.textContent="Скачано. Подтвердите установку в системном окне.";
+    }catch(e){status.textContent="Ошибка: "+e.message;toast(e.message,true);}
+    finally{updBtn.disabled=false;}};
+  bar.append(checkBtn,updBtn);box.append(status,bar);wrap.append(box);return wrap;
+}
+
+async function pageAbout(){
   setActiveNav("about");
   const m=main();m.innerHTML="";m.append(el("h1","page-title","О программе"));
+  const plat=window.ArnosBridge?"Android":"десктоп";
+  let ver="?";try{const v=await api("/api/version");ver=v.version||"?";}catch(e){}
   const c=el("div","card tile");
-  const plat=window.ArnosBridge?"Android":"desktop";
   c.innerHTML=`<div class="tv" style="font-size:22px">ArnosVPN</div>
     <div class="r-sub" style="margin-top:8px">Собственный VPN-протокол с уникальным отпечатком трафика, маскировкой под HTTPS,
     режимами Proxy и TUN.</div>
-    <div class="mini" style="margin-top:16px"><span>Клиент: <b>${plat}</b></span><span>Протокол: <b>v2</b></span></div>`;
+    <div class="mini" style="margin-top:16px"><span>Клиент: <b>${plat}</b></span><span>Версия: <b>${ver}</b></span><span>Протокол: <b>v2</b></span></div>`;
   m.append(c);
+
+  m.append(el("div","group-label","Обновление"));
+  m.append(buildUpdateUI());
+
+  m.append(el("div","group-label","О разработке"));
+  const note=el("div","rows");
+  note.append(el("div","row",`<div class="grow"><div class="r-sub">Проект создан вручную с использованием ИИ-правок — совместная работа человека и ИИ.</div></div>`));
+  m.append(note);
 }
 
 // ---- Split tunneling: which apps use the VPN --------------------------------
