@@ -604,6 +604,37 @@ function buildUpdateUI(){
   bar.append(checkBtn,updBtn);box.append(status,bar);wrap.append(box);return wrap;
 }
 
+// showUpdateModal pops the "an update is available" dialog with Отмена / Обновить.
+function showUpdateModal(info){
+  const modal=el("div","modal");
+  modal.append(el("h3",null,`Доступно обновление<span class="x">✕</span>`));
+  modal.querySelector(".x").onclick=closeModal;
+  const body=el("div");
+  body.innerHTML=`<div class="r-sub" style="font-size:14px;line-height:1.55">
+    Вышла новая версия ArnosVPN <b>${info.latest}</b> (у вас ${info.current||"?"}).<br>
+    Пожалуйста, обновите приложение.</div>`;
+  const status=el("div","r-sub");status.style.marginTop="10px";
+  modal.append(body,status);
+  const actions=el("div","modal-actions");
+  const cancel=el("button","btn ghost","Отмена");cancel.onclick=closeModal;
+  const upd=el("button","btn","Обновить");
+  upd.onclick=async()=>{upd.disabled=true;cancel.disabled=true;status.textContent="Загрузка обновления…";
+    try{const r=await api("/api/update/apply",{method:"POST"});
+      if(r&&r.restart){status.textContent="Обновление установлено. Перезапустите приложение.";toast("Обновлено — перезапустите");cancel.disabled=false;cancel.textContent="Закрыть";}
+      else{toast("Скачано — подтвердите установку");closeModal();}
+    }catch(e){status.textContent="Ошибка: "+e.message;toast(e.message,true);upd.disabled=false;cancel.disabled=false;}};
+  actions.append(cancel,upd);
+  modal.append(actions);
+  openModalEl(modal);
+}
+
+// checkUpdateOnStartup runs once per full app launch (a cold start reloads this
+// page; resuming from recents/tray keeps it, so it won't nag on every switch).
+async function checkUpdateOnStartup(){
+  try{const info=await api("/api/update/check");if(info&&info.hasUpdate)showUpdateModal(info);}
+  catch(e){/* offline or no releases yet — stay silent */}
+}
+
 async function pageAbout(){
   setActiveNav("about");
   const m=main();m.innerHTML="";m.append(el("h1","page-title","О программе"));
@@ -728,7 +759,7 @@ window.addEventListener("hashchange",route);
 // live refresh
 setInterval(async()=>{await refreshState();if(serversPaint)serversPaint();if(statsPaint&&location.hash.includes("stats"))pageStats();},2000);
 
-(async()=>{await loadSettings();route();})();
+(async()=>{await loadSettings();route();checkUpdateOnStartup();})();
 </script>
 </body>
 </html>
