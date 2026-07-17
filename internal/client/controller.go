@@ -190,20 +190,23 @@ func (c *Controller) Ping(name string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Measure a real VPN handshake (TLS + WebSocket upgrade + PSK auth +
-	// welcome), not just a TCP connect to the host. This reflects whether the
-	// tunnel actually works: a wrong port, a blocked upgrade or a bad PSK now
-	// shows as an error instead of a misleadingly-fast TCP round-trip.
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	// Open a real tunnel (TLS + WebSocket upgrade + PSK auth), then measure the
+	// in-tunnel ping/pong round-trip — the true link latency. This avoids
+	// reporting the one-off DNS/handshake setup cost, which on a machine with
+	// slow DNS can be seconds even when the link itself is ~tens of ms.
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	start := time.Now()
 	tun, err := Connect(ctx, profile)
 	if err != nil {
 		return 0, err
 	}
-	ms := time.Since(start).Milliseconds()
-	_ = tun.Close()
-	return ms, nil
+	defer tun.Close()
+	if rtt, err := tun.RTT(5 * time.Second); err == nil {
+		return rtt.Milliseconds(), nil
+	}
+	// Pong didn't arrive but the handshake did — fall back to setup time.
+	return time.Since(start).Milliseconds(), nil
 }
 
 // Connect brings up the active server. mode overrides the saved setting when

@@ -173,13 +173,16 @@ class ControlBridge(
             .build()
         val latch = CountDownLatch(1)
         val result = AtomicReference<Any?>(null) // Long ms on success, Throwable on failure
-        val start = System.nanoTime()
+        val pingAt = java.util.concurrent.atomic.AtomicLong(0)
         val ws = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) { ws.send(hello) }
             override fun onMessage(ws: WebSocket, text: String) {
                 when (JSONObject(text).optString("type")) {
-                    "welcome" -> {
-                        result.set((System.nanoTime() - start) / 1_000_000)
+                    // On welcome the handshake is done; measure the in-tunnel
+                    // ping/pong round-trip (the real latency), not the setup cost.
+                    "welcome" -> { pingAt.set(System.nanoTime()); ws.send("{\"type\":\"ping\"}") }
+                    "pong" -> {
+                        result.set((System.nanoTime() - pingAt.get()) / 1_000_000)
                         latch.countDown(); ws.close(1000, "ping")
                     }
                     "error" -> {

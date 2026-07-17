@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -196,6 +197,37 @@ func (t *Tunnel) KeepAlive(interval time.Duration, done <-chan struct{}) {
 			if err != nil {
 				return
 			}
+		}
+	}
+}
+
+// RTT sends one application-level ping and returns the round-trip time to the
+// matching pong. It measures the tunnel's real latency, excluding the one-off
+// DNS/TLS/handshake setup cost — the meaningful number for a "ping" readout.
+// Only safe on a freshly dialled tunnel that is not being pumped concurrently.
+func (t *Tunnel) RTT(timeout time.Duration) (time.Duration, error) {
+	t.writeMu.Lock()
+	_ = t.conn.SetWriteDeadline(time.Now().Add(timeout))
+	err := t.conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"ping"}`))
+	_ = t.conn.SetWriteDeadline(time.Time{})
+	t.writeMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	start := time.Now()
+	_ = t.conn.SetReadDeadline(time.Now().Add(timeout))
+	defer func() { _ = t.conn.SetReadDeadline(time.Time{}) }()
+	for {
+		mt, data, err := t.conn.ReadMessage()
+		if err != nil {
+			return 0, err
+		}
+		if mt != websocket.TextMessage {
+			continue // ignore any data frames that arrive first
+		}
+		var ctrl protocol.Control
+		if json.Unmarshal(data, &ctrl) == nil && ctrl.Type == protocol.MsgPong {
+			return time.Since(start), nil
 		}
 	}
 }
